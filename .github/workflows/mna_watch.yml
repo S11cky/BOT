@@ -8,6 +8,9 @@ on:
 jobs:
   run-mna:
     runs-on: ubuntu-latest
+    env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
@@ -24,7 +27,4 @@ jobs:
         run: python init_db.py
 
       - name: Run watcher
-        env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python main.py
