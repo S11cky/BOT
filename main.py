@@ -11,7 +11,7 @@ load_dotenv()
 
 TG_TOKEN = os.getenv('TG_TOKEN')
 CHAT_ID = os.getenv('TG_CHAT_ID')
-MIN_AMOUNT_USD = float(os.getenv('MIN_AMOUNT_USD') or 50000000)  # default 50M
+MIN_AMOUNT_USD = float(os.getenv('MIN_AMOUNT_USD') or 1000000)  # default 50M
 FUZZ_THRESHOLD = int(os.getenv('FUZZ_THRESHOLD') or 90)
 
 if not TG_TOKEN or not CHAT_ID:
