@@ -1,0 +1,30 @@
+name: MNA Watch
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # každých 15 minút
+  workflow_dispatch: {}       # spustenie ručne
+
+jobs:
+  run-mna:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Initialize DB
+        run: python init_db.py
+
+      - name: Run watcher
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python main.py
