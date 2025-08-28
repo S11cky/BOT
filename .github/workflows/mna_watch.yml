@@ -1,30 +1,35 @@
-name: MNA Watch
+name: IPO Alerts
 
 on:
+  workflow_dispatch: {}          # možnosť pustiť ručne
   schedule:
-    - cron: "*/15 * * * *"   # každých 15 minút
-  workflow_dispatch: {}       # spustenie ručne
+    - cron: "0 * * * *"          # každú hodinu (uprav podľa seba)
 
 jobs:
-  run-mna:
+  run-alerts:
     runs-on: ubuntu-latest
-    env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dotenv || true
+          # (ipo_alerts.py nič extra nepotrebuje; dotenv je len na lokálne .env)
 
-      - name: Initialize DB
-        run: python init_db.py
-
-      - name: Run watcher
-        run: python main.py
+      - name: Run alerts
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          ALERT_ENABLE_IPO: "1"
+          ALERT_ENABLE_PRELOCKUP: "1"
+          # počas testu pošli len 1 pre-lockup ping, aby to nespamovalo:
+          LOCKUP_PING_DAYS: "14"
+        run: |
+          python main.py
