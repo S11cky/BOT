@@ -1,0 +1,39 @@
+acquirers:
+  - name: Apple
+    aliases: [AAPL, Apple Inc, Apple, Inc.]
+  - name: Microsoft
+    aliases: [MSFT, Microsoft Corporation, Microsoft Corp]
+  - name: Amazon
+    aliases: [AMZN, Amazon.com, Inc.]
+  - name: Alphabet
+    aliases: [Google, GOOGL, Alphabet Inc]
+  - name: Meta
+    aliases: [Facebook, META, Meta Platforms, Inc.]
+  - name: NVIDIA
+    aliases: [NVDA, NVIDIA Corporation]
+  - name: Tesla
+    aliases: [TSLA, Tesla, Inc.]
+  - name: Berkshire Hathaway
+    aliases: [Berkshire]
+  - name: JPMorgan Chase
+    aliases: [JPMorgan, JPM]
+  - name: Visa
+    aliases: [V, Visa Inc.]
+  - name: Johnson & Johnson
+    aliases: [JNJ]
+  - name: UnitedHealth Group
+    aliases: [UNH]
+  - name: Exxon Mobil
+    aliases: [ExxonMobil, XOM]
+  - name: Procter & Gamble
+    aliases: [PG, P&G]
+  - name: Home Depot
+    aliases: [HD]
+  - name: Mastercard
+    aliases: [MA]
+  - name: Chevron
+    aliases: [CVX, Chevron Corporation]
+  - name: Eli Lilly
+    aliases: [LLY]
+  - name: Bank of America
+    aliases: [BAC]
