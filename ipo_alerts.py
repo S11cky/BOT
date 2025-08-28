@@ -1,2 +1,2 @@
-build_ipo_alert()
-build_pre_lockup_sell_alert()
+if __name__ == "__main__":
+    print(build_ipo_alert(...))
