@@ -23,6 +23,12 @@ def _lockup_risk_icon(release_pct: float, insider_pct: float) -> str:
         return "🟠 stredné riziko"
     return "🔴 vysoké riziko rug pull-u"
 
+def filter_ipo_by_lockup(ipo_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Filter the IPO data to return only those companies with lock-up period ≤ 180 days.
+    """
+    return [ipo for ipo in ipo_data if ipo.get("days_to_lockup", 0) <= 180]
+
 def build_ipo_alert(
     *,
     investor: str,
