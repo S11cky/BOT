@@ -7,7 +7,9 @@ from typing import List, Dict, Any, Tuple, Optional
 
 
 def _fm_usd(x: float) -> str:
-    x = float(x or 0)
+    if x is None:
+        return "N/A USD"
+    x = float(x)
     if x >= 1_000_000_000:
         return f"{x/1_000_000_000:.1f} mld. USD"
     if x >= 1_000_000:
@@ -15,9 +17,13 @@ def _fm_usd(x: float) -> str:
     return f"{x:,.0f} USD".replace(",", " ")
 
 def _pct(x: float, d: int = 1) -> str:
+    if x is None:
+        return "N/A %"
     return f"{float(x):.{d}f} %"
 
 def _lockup_risk_icon(release_pct: float, insider_pct: float) -> str:
+    if release_pct is None or insider_pct is None:
+        return "⚪ neznáme riziko"
     if release_pct < 10 and insider_pct < 20:
         return "🟢 nízke riziko"
     if release_pct <= 25 or insider_pct <= 40:
@@ -27,9 +33,13 @@ def _lockup_risk_icon(release_pct: float, insider_pct: float) -> str:
 def filter_ipo_by_lockup(ipo_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Filter the IPO data to return only those companies with lock-up period ≤ 180 days.
+    Includes companies where lock-up has already expired (None values).
     """
-    filtered_data = [ipo for ipo in ipo_data if ipo.get("days_to_lockup", 0) <= 180]
-    print(f"Filtrácia IPO: {len(filtered_data)} IPO vyhovuje")
+    filtered_data = [
+        ipo for ipo in ipo_data 
+        if ipo.get("days_to_lockup") is None or ipo.get("days_to_lockup", 0) <= 180
+    ]
+    print(f"Filtrácia IPO: {len(filtered_data)} IPO vyhovuje (vrátane expirovaných lock-upov)")
     return filtered_data
 
 def build_ipo_alert(
@@ -52,10 +62,14 @@ def build_ipo_alert(
     days_to_lockup: Optional[int] = None,
     lockup_release_pct: Optional[float] = None,
 ) -> str:
-    ff_usd = market_cap_usd * (free_float_pct/100.0)
-    holder_usd = market_cap_usd * (holder_pct/100.0)
-    insiders_total_usd = market_cap_usd * (insiders_total_pct/100.0)
-    strategic_total_pct = strategic_total_pct if strategic_total_pct is not None else (insiders_total_pct + holder_pct)
+    # Bezpečné výpočty pre None hodnoty
+    ff_usd = market_cap_usd * (free_float_pct/100.0) if free_float_pct and market_cap_usd else None
+    holder_usd = market_cap_usd * (holder_pct/100.0) if holder_pct and market_cap_usd else None
+    insiders_total_usd = market_cap_usd * (insiders_total_pct/100.0) if insiders_total_pct and market_cap_usd else None
+    
+    strategic_total_pct = strategic_total_pct if strategic_total_pct is not None else (
+        (insiders_total_pct + holder_pct) if insiders_total_pct and holder_pct else None
+    )
 
     # história
     history_block = "   • (bez histórie)"
@@ -70,14 +84,14 @@ def build_ipo_alert(
 
     # priemer
     avg_line = ""
-    if avg_buy_price_usd:
+    if avg_buy_price_usd and price_usd:
         diff_pct = (price_usd/avg_buy_price_usd - 1.0) * 100.0
         sign = "+" if diff_pct >= 0 else ""
         avg_line = f"\n📐 Priemer nákupov: {avg_buy_price_usd:.2f} USD | Aktuálna cena je {sign}{diff_pct:.1f} %"
 
     # insider breakdown
     insiders_block = ""
-    if insiders_breakdown:
+    if insiders_breakdown and market_cap_usd:
         insiders_block = "\n".join(
             f"   • {n} – {_pct(p,1)} (≈ {_fm_usd(market_cap_usd*(p/100.0))})"
             for n, p in insiders_breakdown
@@ -85,10 +99,13 @@ def build_ipo_alert(
 
     # lock-up
     lock_line = ""
-    if (days_to_lockup is not None) and (days_to_lockup >= 0) and (lockup_release_pct is not None):
+    if days_to_lockup is not None and lockup_release_pct is not None and market_cap_usd:
         release_usd = market_cap_usd * (lockup_release_pct/100.0)
         risk_txt = _lockup_risk_icon(lockup_release_pct, insiders_total_pct)
-        lock_line = f"\n\n⏳ Lock-up: {days_to_lockup} dní (uvolní sa ~{_pct(lockup_release_pct,0)} = ≈ {_fm_usd(release_usd)}) {risk_txt}"
+        lock_status = f"{days_to_lockup} dní" if days_to_lockup >= 0 else "expiroval"
+        lock_line = f"\n\n⏳ Lock-up: {lock_status} (uvolní sa ~{_pct(lockup_release_pct,0)} = ≈ {_fm_usd(release_usd)}) {risk_txt}"
+    elif days_to_lockup is None:
+        lock_line = f"\n\n⏳ Lock-up: expiroval ⚪"
 
     # pásma
     bands = []
@@ -106,7 +123,7 @@ f"🔁 História dokúpení ({investor}):\n{history_block}"
 f"{avg_line}\n\n"
 f"👥 Insider ownership (spolu): {_pct(insiders_total_pct,0)} (≈ {_fm_usd(insiders_total_usd)}) 🟢 optimálne pásmo\n"
 f"{insiders_block}\n\n"
-f"🤝 Strategickí držitelia (Insider + {investor}): {_pct(strategic_total_pct,1)} (≈ {_fm_usd(market_cap_usd*(strategic_total_pct/100.0))})\n\n"
+f"🤝 Strategickí držitelia (Insider + {investor}): {_pct(strategic_total_pct,1)} (≈ {_fm_usd(market_cap_usd*(strategic_total_pct/100.0) if strategic_total_pct and market_cap_usd else None)})\n\n"
 f"{bands_text}"
 f"{lock_line}\n"
     ).strip()
