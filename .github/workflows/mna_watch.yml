@@ -1,29 +1,27 @@
-name: Pre-Lockup Alerts (18 days left)
-
+name: IPO Alerts
 on:
   schedule:
-    - cron: "0 8 * * *"   # raz denne o 08:00 UTC (uprav podľa seba)
+    - cron: "*/10 * * * *"
   workflow_dispatch: {}
-
 jobs:
-  run-prelock:
+  run:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ipo-alerts
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-
-      - name: Install deps
-        run: |
+      - run: |
           python -m pip install --upgrade pip
-          pip install requests python-dotenv || true
-
-      - name: Run pre-lockup alerts
+          pip install -r requirements.txt
+      - name: Run alerts
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          ALERT_ENABLE_IPO: "0"
-          ALERT_ENABLE_PRELOCKUP: "1"
-          LOCKUP_PING_DAYS: "18"   # <<< iba deň D-18
-        run: |
-          python main.py
+          WATCH_TICKERS: "GTLB,ABNB,PLTR"
+          ALERT_ENABLE_IPO: "1"
+          ALERT_ENABLE_PRELOCKUP: "0"
+          ALERT_FREQ_MIN: "10"
+        run: python main.py
