@@ -3,7 +3,7 @@
 ipo_alerts.py – šablóny pre IPO alerty
 """
 
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Tuple, Optional
 
 def _fm_usd(x: float) -> str:
     x = float(x or 0)
@@ -27,7 +27,9 @@ def filter_ipo_by_lockup(ipo_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     """
     Filter the IPO data to return only those companies with lock-up period ≤ 180 days.
     """
-    return [ipo for ipo in ipo_data if ipo.get("days_to_lockup", 0) <= 180]
+    filtered_data = [ipo for ipo in ipo_data if ipo.get("days_to_lockup", 0) <= 180]
+    print(f"Filtrácia IPO: {len(filtered_data)} IPO vyhovuje")
+    return filtered_data
 
 def build_ipo_alert(
     *,
