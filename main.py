@@ -1,16 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-main.py – spúšťač IPO alertov + pre-lockup alertov (D-18) do Telegramu
-- pravidelné IPO alerty (demo dáta, neskôr nahradíš reálnymi)
-- pre-lockup SELL alert iba v deň, keď ostáva presne 18 dní
-- throttle + dedupe, aby nechodili duplicity a spam
-
-ENV:
-  TG_TOKEN, TG_CHAT_ID
-  ALERT_ENABLE_IPO="1|0"              (default 1)
-  ALERT_ENABLE_PRELOCKUP="1|0"        (default 1)
-  LOCKUP_PING_DAYS="18"               (default 18; môžeš dať CSV, napr. "18,7")
-  ALERT_FREQ_MIN="10"                 (min. rozostup odosielania v minútach)
+main.py – reálne zdroje (Yahoo Finance) + tvoje alert šablóny
+- IPO alert: využíva skutočný market cap, cenu, free float, insider %
+- Pre-lockup SELL alert: pošle sa IBA, ak days_to_lockup == 18 (default)
+- throttle + dedupe, aby nespadol spam
 """
 
 import os
@@ -19,33 +12,23 @@ import json
 import time
 import pathlib
 import hashlib
+from typing import Optional, List, Tuple
+
 import requests
-from typing import List, Tuple, Optional
+from dotenv import load_dotenv
 
-# .env je voliteľný (lokálny test)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+from data_sources import fetch_company_snapshot
+from ipo_alerts import build_ipo_alert, build_pre_lockup_sell_alert
 
-from ipo_alerts import (
-    build_ipo_alert,
-    build_pre_lockup_sell_alert,
-)
+load_dotenv()
 
-# ------------------- Telegram -------------------
-
+# ------------ Telegram ------------
 TG_TOKEN = os.getenv("TG_TOKEN", "").strip()
 TG_CHAT_ID = os.getenv("TG_CHAT_ID", "").strip()
 
 def send_telegram(text: str):
-    """Odošli text do Telegramu (alebo vypíš náhľad, ak chýba token/chat)."""
     if not TG_TOKEN or not TG_CHAT_ID:
-        print("[WARN] TG_TOKEN alebo TG_CHAT_ID chýba – neodosielam. Náhľad:")
-        print("=" * 60)
-        print(text)
-        print("=" * 60)
+        print("[WARN] TG_TOKEN/TG_CHAT_ID chýba – náhľad správy:\n", text)
         return None
     try:
         r = requests.post(
@@ -58,8 +41,7 @@ def send_telegram(text: str):
         print("[ERROR] Telegram send failed:", e)
         return None
 
-# ------------------- throttle + dedupe -------------------
-
+# ------------ throttle + dedupe ------------
 STATE_PATH = pathlib.Path(".state/ipo_state.json")
 STATE_PATH.parent.mkdir(exist_ok=True, parents=True)
 
@@ -74,114 +56,136 @@ def _state_load():
 def _state_save(s): STATE_PATH.write_text(json.dumps(s))
 def _msg_hash(s: str) -> str: return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
-ALERT_FREQ_MIN = int(os.getenv("ALERT_FREQ_MIN", "10"))
+ALERT_FREQ_MIN = int(os.getenv("ALERT_FREQ_MIN", "10"))  # min. rozostup medzi správami (min)
 
 def send_unique(text: str):
-    """Pošli správu iba ak neporušujeme throttle a nie je to duplicita."""
     st = _state_load()
     now = int(time.time())
-
-    # throttle
     if now - st.get("last_sent_ts", 0) < ALERT_FREQ_MIN * 60:
-        print("[SKIP] throttle – neposielam ešte (ALERT_FREQ_MIN).")
+        print("[SKIP] throttle – čakám na ďalšie okno.")
         return
-
     h = _msg_hash(text)
     if h in st.get("hashes", [])[-200:]:
-        print("[SKIP] duplicate – rovnaký obsah už nedávno poslaný.")
+        print("[SKIP] duplicate – rovnaký obsah už poslaný.")
         return
-
     send_telegram(text)
     st["last_sent_ts"] = now
     st.setdefault("hashes", []).append(h)
     st["hashes"] = st["hashes"][-500:]
     _state_save(st)
 
-# ------------------- DEMO buildre (nahraď reálnymi dátami) -------------------
+# ------------ pomocné výpočty pásiem ------------
 
-def demo_build_ipo_alert() -> str:
-    """Ukážkový IPO alert – kým nemáš reálne dáta, overíš si doručenie."""
-    return build_ipo_alert(
-        investor="BlackRock",
-        company="GreenFuture Energy",
-        ticker="GFE",
-        market_cap_usd=1_500_000_000,
-        free_float_pct=82.0,
-        holder_pct=6.8,
-        price_usd=15.20,
-        history=[
-            ("14.50 USD", "3. máj 2024", None),
-            ("14.90 USD", "15. jún 2024", "+2.8 %"),
-            ("15.20 USD", "12. aug 2024", "+2.0 %"),
-        ],
-        avg_buy_price_usd=14.90,
-        insiders_total_pct=12.0,
-        insiders_breakdown=[
-            ("Founders & Mgmt", 6.0),
-            ("Early VC", 4.0),
-            ("Board", 2.0),
-        ],
-        strategic_total_pct=18.8,
-        buy_band=(15.0, 15.3),
-        exit_band=(19.0, 21.0),
-        optimal_exit=(20.0, 22.0),
-        days_to_lockup=120,
-        lockup_release_pct=6.0,
-    )
+def compute_bands(price: Optional[float]) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
+    """Jednoduché pásma: BUY ±(–2%..+1%), EXIT +(25..40)%, OPT +(35..50)%."""
+    if not price:
+        price = 10.0
+    buy = (round(price*0.98, 2), round(price*1.01, 2))
+    exitb = (round(price*1.25, 2), round(price*1.40, 2))
+    opt = (round(price*1.35, 2), round(price*1.50, 2))
+    return buy, exitb, opt
 
-def demo_build_prelock_alert(days_to_lockup: int) -> str:
-    """Ukážkový pre-lockup SELL alert – bude poslaný iba v deň D-18."""
-    insider_pct = 48.0
-    market_cap = 1_200_000_000
-    release_pct = 22.0
-    free_float_after_pct = 70.0
+# ------------ hlavná logika ------------
 
-    signals = [
-        "Early VC Investors znížili podiel z 12 % → 8 % (–48M USD)",
-        "Sekundárny predaj oznámený: ~60M USD akcií",
-    ]
-    hist_examples = [
-        "Lyft (2019) – insiders 48 %, free float 42 % → –23 % po lock-upe",
-        "Robinhood (2021) – insiders 52 %, free float 40 % → –18 % po lock-upe",
-    ]
+def run_for_ticker(ticker: str, only_prelock_d18: bool = False):
+    snap = fetch_company_snapshot(ticker)
 
-    return build_pre_lockup_sell_alert(
-        company="GreenTech Energy",
-        ticker="GTE",
-        days_to_lockup=days_to_lockup,
-        insider_pct=insider_pct,
-        free_float_after_pct=free_float_after_pct,
-        market_cap_usd=market_cap,
-        signals=signals,
-        release_pct=release_pct,
-        exit_band=(12.50, 12.70),
-        avg_buy_price_usd=12.35,
-        hist_examples=hist_examples,
-    )
+    # základné metriky
+    name = snap["company_name"]
+    price = snap["price_usd"]
+    mc = snap["market_cap_usd"]
+    ff_pct = snap["free_float_pct"]
+    insiders_pct = snap["insiders_total_pct"]
+    days_to_lockup = snap["days_to_lockup"]  # môže byť None
 
-# ------------------- Orchestrácia -------------------
+    # držiteľ (skutočný z YF institutional_holders)
+    investor = snap["primary_holder_name"] or "Top holder"
+    holder_pct = snap["primary_holder_pct"]  # môže byť None
 
-def main():
-    enable_ipo = os.getenv("ALERT_ENABLE_IPO", "1") == "1"
-    enable_pre = os.getenv("ALERT_ENABLE_PRELOCKUP", "1") == "1"
+    # pásma
+    buy_band, exit_band, opt_exit = compute_bands(price)
 
-    # 1) Pravidelný IPO alert (demo) – po nasadení nahradíš reálnym triggerom
-    if enable_ipo:
-        ipo_msg = demo_build_ipo_alert()
+    # INSIDER breakdown – bez detailu (YF detail často chýba), nechajme prázdne:
+    insiders_breakdown = []  # ak chceš, doplň sem heuristiku
+
+    # IPO alert (ak nechceš – vypni cez env)
+    if not only_prelock_d18:
+        ipo_msg = build_ipo_alert(
+            investor=investor,
+            company=name,
+            ticker=ticker.upper(),
+            market_cap_usd=mc or 0.0,
+            free_float_pct=ff_pct or max(0.0, 100.0 - (insiders_pct or 0.0)),
+            holder_pct=holder_pct or 0.0,
+            price_usd=price or 0.0,
+            history=[],                     # reálne histórie dokupov nemáme vo free zdroji
+            avg_buy_price_usd=None,         # nemáme priemer nákupov veľkého hráča
+            insiders_total_pct=insiders_pct or 0.0,
+            insiders_breakdown=insiders_breakdown,
+            strategic_total_pct=(insiders_pct or 0.0) + (holder_pct or 0.0),
+            buy_band=buy_band,
+            exit_band=exit_band,
+            optimal_exit=opt_exit,
+            days_to_lockup=days_to_lockup if days_to_lockup is not None else 9999,
+            lockup_release_pct=(insiders_pct or 0.0),   # hrubý odhad: insider % ~ potenciálne uvoľniteľné
+        )
         send_unique(ipo_msg)
 
-    # 2) Pre-lockup alert – iba keď ostáva presne 18 dní (default z LOCKUP_PING_DAYS)
+    # Pre-lockup SELL alert iba pri D-18
     ping_days_raw = os.getenv("LOCKUP_PING_DAYS", "18").strip()
     try:
-        ping_days = {int(x) for x in ping_days_raw.split(",") if x.strip() != ""}
+        ping_days = {int(x) for x in ping_days_raw.split(",") if x.strip()}
     except Exception:
         ping_days = {18}
 
-    if enable_pre:
-        # keď nemáš reálne IPO dátumy, pošleme len DEMO pre D-18 ak je v sete
-        if 18 in ping_days:
-            pre_msg = demo_build_prelock_alert(18)
-            send_unique(pre_msg)
+    if days_to_lockup is not None and days_to_lockup in ping_days:
+        # odhad: free float po lock-upe ~ terajší free float + insider %
+        ff_after = None
+        if ff_pct is not None and insiders_pct is not None:
+            ff_after = min(100.0, ff_pct + insiders_pct)
+        else:
+            ff_after = ff_pct or 0.0
+
+        signals: List[str] = []
+        if (insiders_pct or 0) >= 40:
+            signals.append("Vysoký insider podiel ≥ 40 % (riziko predajného tlaku)")
+        if holder_pct and holder_pct >= 5.0:
+            signals.append(f"Veľký držiteľ {investor} drží ≈ {holder_pct:.1f} % – sleduj potenciálne pohyby")
+        if not signals:
+            signals.append("Blíži sa lock-up – sleduj objemy a insider zmeny")
+
+        pre_msg = build_pre_lockup_sell_alert(
+            company=name, ticker=ticker.upper(),
+            days_to_lockup=days_to_lockup,
+            insider_pct=insiders_pct or 0.0,
+            free_float_after_pct=ff_after,
+            market_cap_usd=mc or 0.0,
+            signals=signals,
+            release_pct=(insiders_pct or 0.0),         # hrubý odhad
+            exit_band=(round((price or 0.0)*0.98, 2), round((price or 0.0)*1.02, 2)),
+            avg_buy_price_usd=None,
+            hist_examples=[
+                "Lyft (2019) – insiders ~48 %, free float ~42 % → –23 % po lock-upe",
+                "Robinhood (2021) – insiders ~52 %, free float ~40 % → –18 % po lock-upe",
+            ],
+        )
+        send_unique(pre_msg)
+
+def main():
+    # Zoznam tickerov z env (CSV), napr.: WATCH_TICKERS="ABCD,EFGH"
+    tickers_csv = os.getenv("WATCH_TICKERS", "GTLB,ABNB,PLTR").strip()
+    tickers = [t.strip().upper() for t in tickers_csv.split(",") if t.strip()]
+
+    enable_ipo = os.getenv("ALERT_ENABLE_IPO", "1") == "1"
+    enable_pre = os.getenv("ALERT_ENABLE_PRELOCKUP", "1") == "1"
+
+    only_prelock_d18 = (enable_ipo is False and enable_pre is True)
+
+    for t in tickers:
+        try:
+            run_for_ticker(t, only_prelock_d18=only_prelock_d18)
+        except Exception as e:
+            print(f"[ERROR] {t} zlyhal: {e}")
 
     return 0
 
