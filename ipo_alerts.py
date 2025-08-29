@@ -3,7 +3,8 @@
 ipo_alerts.py – šablóny pre IPO alerty
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional
+
 
 def _fm_usd(x: float) -> str:
     x = float(x or 0)
