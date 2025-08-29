@@ -27,8 +27,8 @@ def send_telegram(message: str):
         return False
 
 def main():
-    # Zoznam tickerov IPO spoločností
-    tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH", "ZI"]
+    # Zoznam tickerov IPO spoločností (bez ZI ktoré spôsobuje chybu)
+    tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
     print(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
     
@@ -50,6 +50,10 @@ def main():
     filtered_ipo_data = filter_ipo_by_lockup(ipo_data)
     print(f"Po filtrovaní zostáva {len(filtered_ipo_data)} spoločností")
     
+    if not filtered_ipo_data:
+        print("Žiadne spoločnosti na odoslanie")
+        return 0
+    
     # Poslanie alertov len pre filtrované IPO
     for ipo in filtered_ipo_data:
         try:
@@ -63,13 +67,22 @@ def main():
                 holder_pct=6.8,  # Predpokladaná hodnota
                 price_usd=ipo["price_usd"],
                 history=[("14.50 USD", "3. máj 2024", None)],
-                avg_buy_price_usd=ipo["price_usd"] * 0.95,  # O 5% nižšia ako aktuálna cena
+                avg_buy_price_usd=ipo["price_usd"] * 0.95 if ipo["price_usd"] else None,
                 insiders_total_pct=ipo["insiders_total_pct"],
                 insiders_breakdown=[("Founders", ipo["insiders_total_pct"] or 10.0)],
                 strategic_total_pct=(ipo["insiders_total_pct"] or 10.0) + 6.8,
-                buy_band=(ipo["price_usd"] * 0.9, ipo["price_usd"] * 1.1),
-                exit_band=(ipo["price_usd"] * 1.2, ipo["price_usd"] * 1.4),
-                optimal_exit=(ipo["price_usd"] * 1.3, ipo["price_usd"] * 1.5),
+                buy_band=(
+                    ipo["price_usd"] * 0.9 if ipo["price_usd"] else None, 
+                    ipo["price_usd"] * 1.1 if ipo["price_usd"] else None
+                ),
+                exit_band=(
+                    ipo["price_usd"] * 1.2 if ipo["price_usd"] else None, 
+                    ipo["price_usd"] * 1.4 if ipo["price_usd"] else None
+                ),
+                optimal_exit=(
+                    ipo["price_usd"] * 1.3 if ipo["price_usd"] else None, 
+                    ipo["price_usd"] * 1.5 if ipo["price_usd"] else None
+                ),
                 days_to_lockup=ipo["days_to_lockup"],
                 lockup_release_pct=ipo["insiders_total_pct"] or 15.0,
             )
