@@ -1,35 +1,36 @@
 import logging
 import os
-import aiohttp
-import asyncio
-import yfinance as yf
 import requests
-from concurrent.futures import ThreadPoolExecutor
+import schedule
+import time
+from data_sources import fetch_company_snapshot  # Import z data_sources.py
+from ipo_alerts import build_ipo_alert  # Import z ipo_alerts.py
 from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Parametre pre Small Cap a cena akcie ≤ 50 USD
-MAX_PRICE = 50  # Maximum stock price
-MIN_MARKET_CAP = 5e8  # Minimum market cap of 500 million USD
+MAX_PRICE = 50  # Zvýšená cena akcie
+MIN_MARKET_CAP = 5e8  # Minimálna trhová kapitalizácia 500 miliónov USD
 
 # Vybrané sektory pre filtrovanie IPO spoločností
-SECTORS = ["Technology", "Biotechnology", "AI", "GreenTech", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonomous Vehicles", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
+SECTORS = ["Technológie", "Biotechnológia", "AI", "Zelené technológie", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonómne vozidlá", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
 
-# Logging setup
+# Nastavenie logovania
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# List of API services for stock/ipo data
-API_SERVICES = [
-    "yfinance", "alphavantage", "finnhub", "iexcloud", "polygon", 
-    "quandl", "twelvedata", "eodhistoricaldata", "financialmodelingprep"
-]
+# Zoznam investorov (napr. VC, Top spoločnosti, Billionaires)
+VC_FUNDS = ['Vanguard Group Inc.', 'Sequoia Capital', 'Andreessen Horowitz', 'Benchmark', 'Greylock Partners', 'Insight Partners']
+TOP_COMPANIES = ['Apple', 'Microsoft', 'Google', 'Amazon', 'Facebook', 'Berkshire Hathaway']
+TOP_BILLIONAIRES = ['Elon Musk', 'Jeff Bezos', 'Bill Gates', 'Warren Buffett', 'Mark Zuckerberg']
+ALL_INVESTORS = VC_FUNDS + TOP_COMPANIES + TOP_BILLIONAIRES
 
-# Function to send a message to Telegram
-async def send_telegram(message: str) -> bool:
-    token = os.getenv('TG_TOKEN')  # Telegram bot token
-    chat_id = os.getenv('TG_CHAT_ID')  # Telegram chat ID
+def send_telegram(message: str) -> bool:
+    """Send message to Telegram"""
+    token = os.getenv('TG_TOKEN')
+    chat_id = os.getenv('TG_CHAT_ID')
     
     if not token or not chat_id:
-        logging.error("Missing Telegram credentials!")
+        logging.error("Chýbajúce Telegram credentials!")
         return False
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -40,115 +41,85 @@ async def send_telegram(message: str) -> bool:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=5) as response:
-                if response.status == 200:
-                    logging.info(f"Message successfully sent: {message[:50]}...")  # Show first 50 characters of the message
-                    return True
-                else:
-                    logging.error(f"Error sending message: {response.status}")
-                    return False
+        response = requests.post(url, json=payload, timeout=5)  # Timeout na 5 sekúnd pre API volania
+        if response.status_code == 200:
+            logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Zobraziť len prvých 50 znakov správy
+            return True
+        else:
+            logging.error(f"Chyba pri odosielaní správy: {response.status_code}")
+            return False
     except Exception as e:
-        logging.error(f"Error sending Telegram message: {e}")
+        logging.error(f"Chyba pri odosielaní Telegram správy: {e}")
         return False
 
-# Function to fetch IPO data from different APIs
-async def fetch_ipo_data(ticker: str, api: str) -> Dict[str, Any]:
+def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
+    """Fetch IPO data for a single ticker"""
     try:
-        logging.info(f"Fetching data for {ticker} from {api}...")
-        
-        if api == "yfinance":
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            price = info.get("regularMarketPrice")
-            market_cap = info.get("marketCap")
-            sector = info.get("sector", "")
-            
-        elif api == "alphavantage":
-            # Alpha Vantage API call
-            url = f"https://www.alphavantage.co/query"
-            params = {
-                "function": "TIME_SERIES_INTRADAY",
-                "symbol": ticker,
-                "interval": "5min",
-                "apikey": os.getenv('ALPHA_VANTAGE_KEY')
-            }
-            response = requests.get(url, params=params).json()
-            price = response.get("Time Series (5min)", {}).get("close", None)
-            market_cap = None  # You can add market cap fetching from another API or database
-            sector = "Unknown"
-        
-        elif api == "finnhub":
-            # Finnhub API call
-            url = f"https://finnhub.io/api/v1/quote"
-            params = {
-                "symbol": ticker,
-                "token": os.getenv('FINNHUB_API_KEY')
-            }
-            response = requests.get(url, params=params).json()
-            price = response.get("c", None)  # Current price
-            market_cap = None  # Finnhub does not provide market cap directly
-            sector = "Unknown"
-        
-        # Add logic for other APIs here...
-
-        if price is not None and market_cap is not None:
-            if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
-                if any(sector in sector_name for sector_name in SECTORS):
-                    return {"ticker": ticker, "price": price, "market_cap": market_cap, "sector": sector}
+        logging.info(f"Získavam údaje pre {ticker}...")
+        snap = fetch_company_snapshot(ticker)
+        if snap:
+            price = snap.get("price_usd")
+            market_cap = snap.get("market_cap_usd")
+            sector = snap.get("sector", "")
+            if price is not None and market_cap is not None:
+                if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
+                    if any(sector in sector_name for sector_name in SECTORS):
+                        return snap
+                    else:
+                        logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
                 else:
-                    logging.warning(f"Ignored IPO {ticker} – sector outside of required criteria.")
+                    logging.warning(f"Ignorované IPO {ticker} – cena alebo market cap je mimo kritérií.")
             else:
-                logging.warning(f"Ignored IPO {ticker} – price or market cap is outside of criteria.")
+                logging.warning(f"Neúplné dáta pre {ticker}, ignorované.")
         else:
-            logging.warning(f"Incomplete data for {ticker}, ignored.")
+            logging.warning(f"Neboli získané dáta pre {ticker}")
     except Exception as e:
-        logging.error(f"Error processing {ticker} from {api}: {e}")
+        logging.error(f"Chyba pri spracovaní {ticker}: {e}")
     return None
 
-# Function to fetch and filter IPO data for multiple tickers
-async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
+def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
+    """Fetch IPO data for multiple tickers using multithreading"""
     ipo_data = []
-    tasks = []
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        for api in API_SERVICES:
-            for ticker in tickers:
-                tasks.append(fetch_ipo_data(ticker, api))  # Now awaiting the result of fetch_ipo_data correctly
-            
-        ipo_data = await asyncio.gather(*tasks)  # Wait for all API calls to finish
-    
-    # Filter out None values
-    ipo_data = [ipo for ipo in ipo_data if ipo is not None]
-    
-    logging.info(f"Total number of filtered IPOs: {len(ipo_data)}")
+    with ThreadPoolExecutor(max_workers=20) as executor:  # Zvýšený počet workerov na 20
+        futures = {executor.submit(fetch_ipo_data, ticker): ticker for ticker in tickers}
+        for future in as_completed(futures):
+            ipo = future.result()
+            if ipo:
+                ipo_data.append(ipo)
+
+    logging.info(f"Celkový počet filtrovaných IPO: {len(ipo_data)}")
     return ipo_data
 
-# Main function to send alerts for IPOs
-async def send_alerts():
+def send_alerts():
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
-    logging.info(f"Starting to monitor {len(tickers)} IPO companies...")
-
-    # Fetching and filtering data for companies
-    ipo_data = await fetch_and_filter_ipo_data(tickers)
-
-    # Sending alerts only for filtered IPOs
+    logging.info(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
+    
+    # Načítanie údajov o spoločnostiach a filtrovanie
+    ipo_data = fetch_and_filter_ipo_data(tickers)
+    
+    # Poslanie alertov len pre filtrované IPO
     for ipo in ipo_data:
         try:
-            ipo_msg = f"🚀 <b>IPO Alert - {ipo['ticker']}</b>\n"
-            ipo_msg += f"🔹 <i>Price</i>: {ipo['price']} USD\n"
-            ipo_msg += f"🔹 <i>Market Cap</i>: {ipo['market_cap']} USD\n"
-            ipo_msg += f"🔹 <i>Sector</i>: {ipo['sector']}\n"
+            ipo_msg = build_ipo_alert(ipo)  # Opravené volanie funkcie, teraz správne s argumentom ipo
             
-            # Send message to Telegram
-            success = await send_telegram(ipo_msg)
+            # Odoslanie správy na Telegram
+            success = send_telegram(ipo_msg)
             if success:
-                logging.info(f"Alert for {ipo['ticker']} successfully sent.")
+                logging.info(f"Alert pre {ipo['ticker']} úspešne odoslaný.")
             else:
-                logging.error(f"Error sending alert for {ipo['ticker']}")
+                logging.error(f"Chyba pri odosielaní alertu pre {ipo['ticker']}")
         except Exception as e:
-            logging.error(f"Error creating alert for {ipo['ticker']}: {e}")
+            logging.error(f"Chyba pri vytváraní alertu pre {ipo['ticker']}: {e}")
+    
+    logging.info("Proces dokončený.")
 
-# Main entry point for the script
+# Nastavenie časovača na spúšťanie každých 15 minút
+schedule.every(15).minutes.do(send_alerts)
+
+# Spustenie plánovača
 if __name__ == "__main__":
-    asyncio.run(send_alerts())
+    logging.info("Skript sa spustil.")
+    while True:
+        schedule.run_pending()
+        time.sleep(60)  # Skontroluje úlohy každú minútu
