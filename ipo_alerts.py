@@ -23,6 +23,7 @@ def fetch_data_from_api(api_function, ticker):
 # Funkcia pre generovanie a odoslanie alertu
 def send_alert(ticker, price, market_cap, free_float, insider_percentage, ipo_date, lock_up, buy_band_lower, buy_band_upper, exit_band_lower, exit_band_upper):
     try:
+        # Vytvorenie alertu vo formáte požiadaviek
         alert_message = f"🚀 <b>IPO Alert - {ticker}</b>\n"
         alert_message += f"🔹 Cena akcie: {price} USD\n"
         alert_message += f"🔹 Market Cap: {market_cap} USD\n"
@@ -31,16 +32,18 @@ def send_alert(ticker, price, market_cap, free_float, insider_percentage, ipo_da
         alert_message += f"🔹 IPO Dátum: {ipo_date}\n"
         alert_message += f"🔹 Lock-up: {lock_up} dní\n\n"
 
+        # Optimálne vstupy a výstupy (Buy Band, Exit Band)
         alert_message += f"📈 Optimálny vstup do pozície (Buy Band): {buy_band_lower} - {buy_band_upper} USD\n"
         alert_message += f"🎯 Optimálny výstup z pozície (Exit Band): {exit_band_lower} - {exit_band_upper} USD\n\n"
 
+        # Stratégie
         alert_message += f"💡 Strategický pohľad: \n"
         alert_message += f"🔑 Silný Free Float: Tento IPO má silný free float, čo môže naznačovať vyššiu likviditu a väčší záujem o akcie. Môže to byť vhodná príležitosť na nákup. \n"
         alert_message += f"⚠️ Nízký Insider Ownership: Nižší podiel insiderov môže znamenať nižšiu dôveru zo strany zakladateľov a zamestnancov. \n\n"
         alert_message += f"🔮 Krátkodobá stratégia: Cena môže vzrásť o 10% až 20% v krátkom horizonte po IPO. \n"
         alert_message += f"🌱 Dlhodobá stratégia: Ak spoločnosť uspeje v raste, cena akcie môže dosiahnuť 25% až 50% zisk v priebehu nasledujúcich 12-18 mesiacov. \n"
 
-        # Odoslanie správ na Telegram
+        # Odoslanie správy na Telegram
         send_telegram(alert_message)
 
         logging.info(f"Alert for {ticker} successfully sent.")
@@ -67,8 +70,10 @@ def send_telegram(alert_message):
 # Hlavná funkcia pre monitoring IPOs
 async def monitor_ipo(tickers):
     for ticker in tickers:
+        # Získanie dát cez funkciu pre API
         price, market_cap, free_float, insider_percentage, ipo_date, lock_up, buy_band_lower, buy_band_upper, exit_band_lower, exit_band_upper = fetch_data_from_api(yfinance.get_stock_data, ticker)
 
+        # Odoslanie alertu
         send_alert(ticker, price, market_cap, free_float, insider_percentage, ipo_date, lock_up, buy_band_lower, buy_band_upper, exit_band_lower, exit_band_upper)
 
 # Spustenie monitorovania IPO spoločností
