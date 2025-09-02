@@ -1,6 +1,7 @@
 import yfinance as yf
+import aiohttp
 
-def fetch_company_snapshot(ticker: str):
+async def fetch_company_snapshot(ticker: str, session: aiohttp.ClientSession):
     """Získa údaje o spoločnosti podľa tickeru pomocou yfinance."""
     try:
         # Získanie údajov o akcii zo zdroja Yahoo Finance
