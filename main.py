@@ -90,6 +90,28 @@ async def fetch_company_snapshot(ticker: str, session: aiohttp.ClientSession) ->
         logging.error(f"Chyba pri získavaní dát pre {ticker}: {e}")
         return None
 
+# Funkcia na odoslanie správy na Telegram
+def send_telegram(message: str):
+    """Send message to Telegram"""
+    token = "tvoj_telegram_bot_token"  # Zadaj svoj token sem
+    chat_id = "tvoj_chat_id"  # Zadaj svoje chat ID sem
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=5)  # Timeout na 5 sekúnd
+        if response.status_code == 200:
+            logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Zobraziť len prvých 50 znakov správy
+        else:
+            logging.error(f"Chyba pri odosielaní správy: {response.status_code}")
+    except Exception as e:
+        logging.error(f"Chyba pri odosielaní Telegram správy: {e}")
+
 # Asynchrónna funkcia na odoslanie alertu
 async def send_alert(ticker, price, buy_band_lower, buy_band_upper):
     if buy_band_lower is None or buy_band_upper is None:
@@ -100,7 +122,7 @@ async def send_alert(ticker, price, buy_band_lower, buy_band_upper):
     alert_message += f"🔹 **Cena akcie**: {price} USD\n"
     alert_message += f"📈 **Optimálny vstup do pozície (Buy Band)**: {buy_band_lower:.2f} - {buy_band_upper:.2f} USD\n"
     
-    # Pošleme alert (predpokladáme, že send_telegram je už implementovaná)
+    # Pošleme alert
     send_telegram(alert_message)
 
 # Asynchrónna funkcia na monitorovanie IPO
