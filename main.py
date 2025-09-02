@@ -1,9 +1,5 @@
 import logging
-import requests
-import asyncio
-import aiohttp
-from concurrent.futures import ThreadPoolExecutor
-from asyncio import gather
+from data_sources import fetch_company_snapshot  # Import funkcie na získanie údajov o IPO
 
 # Parametre pre filtrovanie IPO
 MAX_PRICE = 50  # Zvýšená cena akcie
