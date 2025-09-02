@@ -1,4 +1,6 @@
 import logging
+import aiohttp  # Importovanie knižnice aiohttp
+import asyncio
 from data_sources import fetch_company_snapshot  # Import funkcie na získanie údajov o IPO
 
 # Parametre pre filtrovanie IPO
@@ -65,7 +67,7 @@ async def fetch_and_filter_ipo_data(tickers: list):
     ipo_data = []
     async with aiohttp.ClientSession() as session:
         tasks = [fetch_ipo_data(ticker, session) for ticker in tickers]
-        results = await gather(*tasks)  # Čaká na všetky výsledky súčasne
+        results = await asyncio.gather(*tasks)  # Čaká na všetky výsledky súčasne
         ipo_data = [ipo for ipo in results if ipo]  # Filtrujeme None hodnoty
     logging.info(f"Celkový počet filtrovaných IPO: {len(ipo_data)}")
     return ipo_data
@@ -85,7 +87,7 @@ async def send_alerts():
         ipo_msg = build_ipo_alert(ipo)  # Vytvorí správy pre alerty
         tasks.append(send_telegram(ipo_msg))  # Vytvoríme úlohu pre každý alert
 
-    results = await gather(*tasks)  # Spustíme všetky úlohy súčasne
+    results = await asyncio.gather(*tasks)  # Spustíme všetky úlohy súčasne
     logging.info(f"Alerty odoslané: {sum(results)}")
 
 # Spustenie skriptu na testovanie
