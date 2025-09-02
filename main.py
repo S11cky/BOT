@@ -1,12 +1,11 @@
 import logging
 import os
-import requests
 import aiohttp
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from data_sources import fetch_company_snapshot  # Import from data_sources.py
-from ipo_alerts import build_ipo_alert  # Import from ipo_alerts.py
+import yfinance as yf
+import requests
 from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor
 
 # Parametre pre Small Cap a cena akcie ≤ 50 USD
 MAX_PRICE = 50  # Maximum stock price
@@ -18,8 +17,14 @@ SECTORS = ["Technology", "Biotechnology", "AI", "GreenTech", "FinTech", "E-comme
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# List of API services for stock/ipo data
+API_SERVICES = [
+    "yfinance", "alphavantage", "finnhub", "iexcloud", "polygon", 
+    "quandl", "twelvedata", "eodhistoricaldata", "financialmodelingprep"
+]
+
+# Function to send a message to Telegram
 async def send_telegram(message: str) -> bool:
-    """Send message to Telegram"""
     token = os.getenv('TG_TOKEN')  # Telegram bot token
     chat_id = os.getenv('TG_CHAT_ID')  # Telegram chat ID
     
@@ -47,42 +52,60 @@ async def send_telegram(message: str) -> bool:
         logging.error(f"Error sending Telegram message: {e}")
         return False
 
-async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
-    """Fetch IPO data for a single ticker using async"""
+# Function to fetch IPO data from different APIs
+async def fetch_ipo_data(ticker: str, api: str) -> Dict[str, Any]:
     try:
-        logging.info(f"Fetching data for {ticker}...")
-        snap = await fetch_company_snapshot(ticker, session)
-        if snap:
-            price = snap.get("price_usd")
-            market_cap = snap.get("market_cap_usd")
-            sector = snap.get("sector", "")
-            if price is not None and market_cap is not None:
-                if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
-                    if any(sector in sector_name for sector_name in SECTORS):
-                        return snap
-                    else:
-                        logging.warning(f"Ignored IPO {ticker} – sector outside of required criteria.")
+        logging.info(f"Fetching data for {ticker} from {api}...")
+        
+        if api == "yfinance":
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            price = info.get("regularMarketPrice")
+            market_cap = info.get("marketCap")
+            sector = info.get("sector", "")
+            
+        elif api == "alphavantage":
+            # Add Alpha Vantage API logic here
+            pass
+        
+        elif api == "finnhub":
+            # Add Finnhub API logic here
+            pass
+        
+        # Add logic for other APIs here...
+
+        if price is not None and market_cap is not None:
+            if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
+                if any(sector in sector_name for sector_name in SECTORS):
+                    return {"ticker": ticker, "price": price, "market_cap": market_cap, "sector": sector}
                 else:
-                    logging.warning(f"Ignored IPO {ticker} – price or market cap is outside of criteria.")
+                    logging.warning(f"Ignored IPO {ticker} – sector outside of required criteria.")
             else:
-                logging.warning(f"Incomplete data for {ticker}, ignored.")
+                logging.warning(f"Ignored IPO {ticker} – price or market cap is outside of criteria.")
         else:
-            logging.warning(f"Data not fetched for {ticker}")
+            logging.warning(f"Incomplete data for {ticker}, ignored.")
     except Exception as e:
-        logging.error(f"Error processing {ticker}: {e}")
+        logging.error(f"Error processing {ticker} from {api}: {e}")
     return None
 
+# Function to fetch and filter IPO data for multiple tickers
 async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
-    """Fetch IPO data for multiple tickers using asyncio"""
     ipo_data = []
-    async with aiohttp.ClientSession() as session:
-        tasks = [fetch_ipo_data(ticker, session) for ticker in tickers]
-        results = await asyncio.gather(*tasks)
-        ipo_data = [ipo for ipo in results if ipo]
+    tasks = []
+    with ThreadPoolExecutor() as executor:
+        for api in API_SERVICES:
+            for ticker in tickers:
+                tasks.append(executor.submit(fetch_ipo_data, ticker, api))
+                
+        for task in tasks:
+            result = task.result()
+            if result:
+                ipo_data.append(result)
     
     logging.info(f"Total number of filtered IPOs: {len(ipo_data)}")
     return ipo_data
 
+# Main function to send alerts for IPOs
 async def send_alerts():
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
@@ -94,8 +117,11 @@ async def send_alerts():
     # Sending alerts only for filtered IPOs
     for ipo in ipo_data:
         try:
-            ipo_msg = build_ipo_alert(ipo)  # Corrected function call, now correctly with the ipo argument
-
+            ipo_msg = f"🚀 <b>IPO Alert - {ipo['ticker']}</b>\n"
+            ipo_msg += f"🔹 <i>Price</i>: {ipo['price']} USD\n"
+            ipo_msg += f"🔹 <i>Market Cap</i>: {ipo['market_cap']} USD\n"
+            ipo_msg += f"🔹 <i>Sector</i>: {ipo['sector']}\n"
+            
             # Send message to Telegram
             success = await send_telegram(ipo_msg)
             if success:
@@ -105,8 +131,6 @@ async def send_alerts():
         except Exception as e:
             logging.error(f"Error creating alert for {ipo['ticker']}: {e}")
 
-    logging.info("Process completed.")
-
+# Main entry point for the script
 if __name__ == "__main__":
-    logging.info("Script started.")
-    asyncio.run(send_alerts())  # Calling the async function to run the alert process
+    asyncio.run(send_alerts())
