@@ -58,9 +58,11 @@ def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
             price = snap.get("price_usd")
             market_cap = snap.get("market_cap_usd")
             sector = snap.get("sector", "")
+            logging.info(f"IPO {ticker} získané: Cena = {price}, Market Cap = {market_cap}, Sektor = {sector}")
             if price is not None and market_cap is not None:
                 if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
                     if any(sector in sector_name for sector_name in SECTORS):
+                        logging.info(f"IPO {ticker} spĺňa kritériá.")
                         return snap
                     else:
                         logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
@@ -95,9 +97,13 @@ def send_alerts():
     # Načítanie údajov o spoločnostiach a filtrovanie
     ipo_data = fetch_and_filter_ipo_data(tickers)
     
+    logging.info(f"Po filtrovaní: {len(ipo_data)} IPO splnilo kritériá.")
+    
     # Poslanie alertov len pre filtrované IPO
     for ipo in ipo_data:
         try:
+            logging.info(f"Spracovávam IPO: {ipo['ticker']} - Cena: {ipo['price_usd']}, Market Cap: {ipo['market_cap_usd']}")
+            
             # Prvý alert - Ak IPO ešte nebolo odoslané a splní podmienky
             if ipo['ticker'] not in alert_history:
                 ipo_msg = build_ipo_alert(ipo)
@@ -111,7 +117,6 @@ def send_alerts():
                 buy_band_max = ipo.get("buy_band_max")
                 current_price = ipo.get("price_usd")
                 if buy_band_min <= current_price <= buy_band_max:
-                    # Odošli druhý alert
                     ipo_msg = build_ipo_alert(ipo)  # Tento alert je rovnaký ako prvý, ale môžeš pridať špecifickú správu
                     send_telegram(ipo_msg)
                     logging.info(f"Druhý alert pre {ipo['ticker']} úspešne odoslaný.")
