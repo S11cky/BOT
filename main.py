@@ -101,7 +101,7 @@ def send_alerts():
     # Poslanie alertov len pre filtrované IPO
     for ipo in ipo_data:
         try:
-            ipo_msg = build_ipo_alert(ipo)
+            ipo_msg = build_ipo_alert(ipo)  # Opravené volanie funkcie, teraz správne s argumentom ipo
             
             # Odoslanie správy na Telegram
             success = send_telegram(ipo_msg)
