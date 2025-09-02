@@ -1,6 +1,8 @@
 import logging
 import os
 import requests
+import schedule
+import time
 from data_sources import fetch_company_snapshot  # Import z data_sources.py
 from ipo_alerts import build_ipo_alert  # Import z ipo_alerts.py
 from typing import List, Dict, Any
@@ -112,5 +114,12 @@ def send_alerts():
     
     logging.info("Proces dokončený.")
 
+# Nastavenie časovača na spúšťanie každých 15 minút
+schedule.every(15).minutes.do(send_alerts)
+
+# Spustenie plánovača
 if __name__ == "__main__":
-    send_alerts()
+    logging.info("Skript sa spustil.")
+    while True:
+        schedule.run_pending()
+        time.sleep(60)  # Skontroluje úlohy každú minútu
