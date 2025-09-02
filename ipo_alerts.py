@@ -1,38 +1,37 @@
-def build_ipo_alert(ipo: dict) -> str:
-    """Vytvorí formátovaný alert pre IPO spoločnosť v požadovanom formáte"""
-    company_name = ipo.get("company_name", "N/A")
-    ticker = ipo.get("ticker", "N/A")
-    price = ipo.get("price_usd", "N/A")
-    market_cap = ipo.get("market_cap_usd", "N/A")
-    free_float_pct = ipo.get("free_float_pct", "N/A")
-    insiders_pct = ipo.get("insiders_total_pct", "N/A")
-    ipo_first_trade_date = ipo.get("ipo_first_trade_date", "N/A")
-    days_to_lockup = ipo.get("days_to_lockup", "N/A")
-    
-    # Definovanie optimálnych pásiem (buy, exit) podľa ceny IPO
-    buy_band_min = ipo.get("buy_band_min", "N/A")
-    buy_band_max = ipo.get("buy_band_max", "N/A")
-    exit_band_min = ipo.get("exit_band_min", "N/A")
-    exit_band_max = ipo.get("exit_band_max", "N/A")
-    
-    # Formátovaná správa pre Telegram
-    message = f"""
-🚀 <b>IPO Alert - {company_name} ({ticker})</b>
+def build_ipo_alert(ipo_data: Dict[str, Any]) -> str:
+    try:
+        ticker = ipo_data['ticker']
+        price = ipo_data['price']
+        market_cap = ipo_data['market_cap']
+        sector = ipo_data['sector']
+        free_float = ipo_data.get('free_float', 'N/A')
+        insider_ownership = ipo_data.get('insider_ownership', 'N/A')
+        ipo_date = ipo_data.get('ipo_date', 'N/A')
+        lock_up = ipo_data.get('lock_up', 'N/A')
+        buy_band_lower = ipo_data.get('buy_band_lower', 'N/A')
+        buy_band_upper = ipo_data.get('buy_band_upper', 'N/A')
+        exit_band_lower = ipo_data.get('exit_band_lower', 'N/A')
+        exit_band_upper = ipo_data.get('exit_band_upper', 'N/A')
 
-🔹 <i>Cena akcie</i>: {price} USD
-🔹 <i>Market Cap</i>: {market_cap} USD
-🔹 <i>Free Float</i>: {free_float_pct}%
-🔹 <i>Insider %</i>: {insiders_pct}%
-🔹 <i>IPO Dátum</i>: {ipo_first_trade_date}
-🔹 <i>Lock-up</i>: {days_to_lockup} dní
+        alert_message = f"""🚀 <b>IPO Alert - {ticker}</b>
+🔹 Cena akcie: {price} USD
+🔹 Market Cap: {market_cap} USD
+🔹 Sektor: {sector}
 
-📈 <b>Optimálny vstup do pozície (Buy Band)</b>: {buy_band_min} - {buy_band_max} USD
-🎯 <b>Optimálny výstup z pozície (Exit Band)</b>: {exit_band_min} - {exit_band_max} USD
+🔹 Free Float: {free_float}%
+🔹 Insider %: {insider_ownership}%
+🔹 IPO Dátum: {ipo_date}
+🔹 Lock-up: {lock_up} dní
 
-💡 <b>Strategický pohľad</b>: 
-🔑 <i>Silný Free Float</i>: Tento IPO má silný free float, čo môže naznačovať vyššiu likviditu a väčší záujem o akcie. Môže to byť vhodná príležitosť na nákup. ⚠️ <i>Nízký Insider Ownership</i>: Nižší podiel insiderov môže znamenať nižšiu dôveru zo strany zakladateľov a zamestnancov. 
+📈 **Optimálny vstup do pozície (Buy Band)**: {buy_band_lower} - {buy_band_upper} USD
+🎯 **Optimálny výstup z pozície (Exit Band)**: {exit_band_lower} - {exit_band_upper} USD
 
-🔮 <b>Krátkodobá stratégia</b>: <i>Krátkodobý cieľ</i>: Cena môže vzrásť o 10% až 20% v krátkom horizonte po IPO. Odhadovaný výstup medzi {exit_band_min} a {exit_band_max} USD.
-🌱 <b>Dlhodobá stratégia</b>: <i>Dlhodobý cieľ</i>: Ak spoločnosť uspeje v raste, cena akcie môže dosiahnuť 25% až 50% zisk v priebehu nasledujúcich 12-18 mesiacov.
-"""
-    return message
+💡 **Strategický pohľad**: 
+🔑 **Silný Free Float**: Tento IPO má silný free float, čo môže naznačovať vyššiu likviditu a väčší záujem o akcie. Môže to byť vhodná príležitosť na nákup. ⚠️ **Nízký Insider Ownership**: Nižší podiel insiderov môže znamenať nižšiu dôveru zo strany zakladateľov a zamestnancov. 
+
+🔮 **Krátkodobá stratégia**: **Krátkodobý cieľ**: Cena môže vzrásť o 10% až 20% v krátkom horizonte po IPO. Odhadovaný výstup medzi {exit_band_lower} a {exit_band_upper} USD.
+🌱 **Dlhodobá stratégia**: **Dlhodobý cieľ**: Ak spoločnosť uspeje v raste, cena akcie môže dosiahnuť 25% až 50% zisk v priebehu nasledujúcich 12-18 mesiacov."""
+        return alert_message
+    except Exception as e:
+        logging.error(f"Error creating IPO alert: {e}")
+        return None
