@@ -1,137 +1,107 @@
+import yfinance as yf
+import numpy as np
 import logging
-import os
-import requests
-import schedule
-import time
-import aiohttp
-from data_sources import fetch_company_snapshot  # Import from data_sources.py
-from ipo_alerts import build_ipo_alert  # Import from ipo_alerts.py
-from typing import List, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 
-# Parameters for Small Cap and stock price ≤ 50 USD
-MAX_PRICE = 50  # Maximum stock price
-MIN_MARKET_CAP = 5e8  # Minimum market capitalization 500 million USD
-
-# Selected sectors for filtering IPO companies (translated to English)
+# Parametre pre filtrovanie IPO
+MAX_PRICE = 50  # Maximálna cena akcie
+MIN_MARKET_CAP = 5e8  # Minimálna trhová kapitalizácia (500 miliónov USD)
 SECTORS = ["Technology", "Biotechnology", "AI", "Green Technologies", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonomous Vehicles", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
 
-# Storing history of sent alerts
-alert_history = {}
-
-# Logging setup
+# Logovanie
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-async def send_telegram(message: str) -> bool:
-    """Send message to Telegram"""
-    token = os.getenv('TG_TOKEN')
-    chat_id = os.getenv('TG_CHAT_ID')
-    
-    if not token or not chat_id:
-        logging.error("Missing Telegram credentials!")
-        return False
-    
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "HTML"
-    }
-
+# Funkcia na získanie historických údajov a výpočet volatility
+def get_historical_data(ticker: str):
     try:
-        async with aiohttp.ClientSession() as session:
-            response = await session.post(url, json=payload, timeout=5)
-            if response.status == 200:
-                logging.info(f"Message successfully sent: {message[:50]}...")  # Show only first 50 characters
-                return True
-            else:
-                logging.error(f"Error sending message: {response.status}")
-                return False
+        # Získame historické údaje za posledných 3 mesiace
+        data = yf.download(ticker, period="3mo", interval="1d")
+        return data
     except Exception as e:
-        logging.error(f"Error sending Telegram message: {e}")
-        return False
+        logging.error(f"Chyba pri získavaní historických dát pre {ticker}: {e}")
+        return None
 
-async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
-    """Fetch IPO data for a single ticker"""
+# Funkcia na výpočet volatility na základe historických dát
+def calculate_volatility(data):
+    if data is None or len(data) < 30:  # Min. 30 dní pre volatilitu
+        return None
+    
+    # Výpočet denného percentuálneho zisku
+    data['Returns'] = data['Adj Close'].pct_change()
+    
+    # Výpočet volatility (štandardná odchýlka denných ziskov)
+    volatility = np.std(data['Returns']) * np.sqrt(252)  # Annualizovaná volatilita
+    return volatility
+
+# Funkcia na dynamické nastavenie Buy Band
+def dynamic_buy_band(price: float, volatility: float):
+    if volatility is None:
+        return None, None
+    
+    # Dynamické pásmo na základe volatility
+    # Pásmo sa bude rozširovať pri vyššej volatilite
+    spread = price * volatility  # Spread na základe volatility
+    buy_band_lower = price - spread
+    buy_band_upper = price + spread
+    
+    return buy_band_lower, buy_band_upper
+
+# Funkcia na filtrovanie IPO dát a generovanie alertov
+def fetch_ipo_data(ticker: str):
     try:
-        logging.info(f"Fetching data for {ticker}...")
-        snap = await fetch_company_snapshot(ticker, session)  # Passing session to the API function
-        if snap:
-            price = snap.get("price_usd")
-            market_cap = snap.get("market_cap_usd")
-            sector = snap.get("sector", "")
-            logging.info(f"IPO {ticker} fetched: Price = {price}, Market Cap = {market_cap}, Sector = {sector}")
+        # Získame IPO dáta (predpokladáme, že fetch_company_snapshot už je implementovaná)
+        ipo = fetch_company_snapshot(ticker)
+        if ipo:
+            price = ipo.get("price_usd")
+            market_cap = ipo.get("market_cap_usd")
+            sector = ipo.get("sector", "")
+
+            # Filtrujeme IPO podľa ceny, trhovej kapitalizácie a sektora
             if price is not None and market_cap is not None:
                 if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
                     if any(sector in sector_name for sector_name in SECTORS):
-                        logging.info(f"IPO {ticker} meets criteria.")
-                        return snap
+                        # Získame historické dáta
+                        historical_data = get_historical_data(ticker)
+                        volatility = calculate_volatility(historical_data)
+                        
+                        # Dynamicky vypočítať Buy band
+                        buy_band_lower, buy_band_upper = dynamic_buy_band(price, volatility)
+                        
+                        return ipo, buy_band_lower, buy_band_upper
                     else:
-                        logging.warning(f"Ignored IPO {ticker} – sector not in required list.")
+                        logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
                 else:
-                    logging.warning(f"Ignored IPO {ticker} – price or market cap out of criteria. Price: {price}, Market Cap: {market_cap}")
+                    logging.warning(f"Ignorované IPO {ticker} – cena alebo market cap je mimo kritérií.")
             else:
-                logging.warning(f"Incomplete data for {ticker}, ignored.")
+                logging.warning(f"Neúplné dáta pre {ticker}, ignorované.")
         else:
-            logging.warning(f"No data retrieved for {ticker}")
+            logging.warning(f"Neboli získané dáta pre {ticker}")
     except Exception as e:
-        logging.error(f"Error processing {ticker}: {e}")
-    return None
+        logging.error(f"Chyba pri spracovaní {ticker}: {e}")
+    return None, None, None
 
-async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
-    """Fetch IPO data for multiple tickers using multithreading"""
-    ipo_data = []
-    async with aiohttp.ClientSession() as session:  # Creating a session to be used in all fetch calls
-        for ticker in tickers:
-            ipo = await fetch_ipo_data(ticker, session)
-            if ipo:
-                ipo_data.append(ipo)
-    logging.info(f"Total number of filtered IPOs: {len(ipo_data)}")
-    return ipo_data
+# Funkcia na poslanie alertu
+def send_alert(ticker, price, buy_band_lower, buy_band_upper):
+    if buy_band_lower is None or buy_band_upper is None:
+        return
+    
+    # Vytvoríme správu
+    alert_message = f"🚀 IPO Alert - {ticker}\n"
+    alert_message += f"🔹 **Cena akcie**: {price} USD\n"
+    alert_message += f"📈 **Optimálny vstup do pozície (Buy Band)**: {buy_band_lower:.2f} - {buy_band_upper:.2f} USD\n"
+    
+    # Pošleme alert (predpokladáme, že send_telegram je už implementovaná)
+    send_telegram(alert_message)
 
-async def send_alerts():
-    tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
-    
-    logging.info(f"Starting to monitor {len(tickers)} IPO companies...")
-    
-    # Fetching data for companies and filtering
-    ipo_data = await fetch_and_filter_ipo_data(tickers)
-    
-    logging.info(f"After filtering: {len(ipo_data)} IPOs met the criteria.")
-    
-    # Sending alerts only for filtered IPOs
-    for ipo in ipo_data:
-        try:
-            logging.info(f"Processing IPO: {ipo['ticker']} - Price: {ipo['price_usd']}, Market Cap: {ipo['market_cap_usd']}")
-            
-            # First alert - If IPO hasn't been sent before and meets criteria
-            if ipo['ticker'] not in alert_history:
-                ipo_msg = build_ipo_alert(ipo)
-                await send_telegram(ipo_msg)
-                alert_history[ipo['ticker']] = {"first_alert_sent": True, "price": ipo.get("price_usd")}
-                logging.info(f"First alert for {ipo['ticker']} successfully sent.")
-            
-            # Second alert - If stock price enters the optimal buy band
-            if ipo['ticker'] in alert_history:
-                buy_band_min = ipo.get("buy_band_min")
-                buy_band_max = ipo.get("buy_band_max")
-                current_price = ipo.get("price_usd")
-                
-                # Check if buy_band_min and buy_band_max are not None before comparing
-                if buy_band_min is not None and buy_band_max is not None:
-                    if buy_band_min <= current_price <= buy_band_max:
-                        ipo_msg = build_ipo_alert(ipo)  # This alert is the same as the first, but can be modified with specific messages
-                        await send_telegram(ipo_msg)
-                        logging.info(f"Second alert for {ipo['ticker']} successfully sent.")
-                else:
-                    logging.warning(f"Buy band not available for {ipo['ticker']}.")
-        except Exception as e:
-            logging.error(f"Error creating alert for {ipo['ticker']}: {e}")
-    
-    logging.info("Process completed.")
+# Hlavná funkcia na monitorovanie IPO
+def monitor_ipo(tickers):
+    for ticker in tickers:
+        ipo, buy_band_lower, buy_band_upper = fetch_ipo_data(ticker)
+        if ipo:
+            price = ipo["price_usd"]
+            send_alert(ticker, price, buy_band_lower, buy_band_upper)
 
-# Run the script
+# Spustenie monitorovania IPO spoločností
 if __name__ == "__main__":
-    logging.info("Script started.")
-    import asyncio
-    asyncio.run(send_alerts())
+    tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
+    monitor_ipo(tickers)
