@@ -1,78 +1,86 @@
-import logging
-import aiohttp  # Importovanie knižnice aiohttp
-import asyncio
-from data_sources import fetch_company_snapshot  # Import funkcie na získanie údajov o IPO
+import requests
+from bs4 import BeautifulSoup
+import yfinance as yf
+import aiohttp
 
 # Parametre pre filtrovanie IPO
 MAX_PRICE = 50  # Zvýšená cena akcie
 MIN_MARKET_CAP = 5e8  # Minimálna trhová kapitalizácia 500 miliónov USD
 SECTORS = ["Technológie", "Biotechnológia", "AI", "Zelené technológie", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonómne vozidlá", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
 
-# Telegram API nastavenia
-TELEGRAM_TOKEN = 'YOUR_TELEGRAM_TOKEN'
-TELEGRAM_CHAT_ID = 'YOUR_CHAT_ID'
-
-# Asynchrónne odosielanie správ na Telegram
-async def send_telegram(message: str) -> bool:
-    """Odosiela správu na Telegram asynchrónne"""
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    }
-
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(url, json=payload, timeout=5) as response:
-                if response.status == 200:
-                    logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Prvých 50 znakov správy
-                    return True
-                else:
-                    logging.error(f"Chyba pri odosielaní správy: {response.status}")
-                    return False
-        except Exception as e:
-            logging.error(f"Chyba pri odosielaní Telegram správy: {e}")
-            return False
-
-# Asynchrónne získanie IPO dát
-async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession):
-    """Načítanie dát o IPO pre jednotlivé tickery asynchrónne"""
+def fetch_ipo_data_yahoo(ticker: str):
+    """Načítanie IPO dát z Yahoo Finance"""
     try:
-        ipo = await fetch_company_snapshot(ticker, session)  # Funkcia fetch_company_snapshot by mala byť asynchrónna
-        if ipo:
-            price = ipo.get("price_usd")
-            market_cap = ipo.get("market_cap_usd")
-            sector = ipo.get("sector", "")
-
-            # Filtrujeme IPO podľa ceny, trhovej kapitalizácie a sektora
-            if price is not None and market_cap is not None:
-                if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
-                    if any(sector in sector_name for sector_name in SECTORS):
-                        return ipo
-                    else:
-                        logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
-                else:
-                    logging.warning(f"Ignorované IPO {ticker} – cena alebo market cap je mimo kritérií.")
-            else:
-                logging.warning(f"Neúplné dáta pre {ticker}, ignorované.")
-        else:
-            logging.warning(f"Neboli získané dáta pre {ticker}")
+        company = yf.Ticker(ticker)
+        ipo_data = company.info
+        snapshot = {
+            "company_name": ipo_data.get("shortName", "N/A"),
+            "ticker": ticker,
+            "price_usd": ipo_data.get("regularMarketPrice", 0),
+            "market_cap_usd": ipo_data.get("marketCap", 0),
+            "sector": ipo_data.get("sector", ""),
+            "free_float_pct": ipo_data.get("floatShares", 0) / ipo_data.get("sharesOutstanding", 1) * 100,
+            "insiders_total_pct": ipo_data.get("insiderOwnership", 0),
+            "ipo_first_trade_date": ipo_data.get("ipoStartDate", "N/A"),
+            "days_to_lockup": ipo_data.get("daysToLockup", "N/A")
+        }
+        return snapshot
     except Exception as e:
-        logging.error(f"Chyba pri spracovaní {ticker}: {e}")
-    return None
+        print(f"Chyba pri získavaní dát z Yahoo pre {ticker}: {e}")
+        return None
+
+async def fetch_ipo_data_from_nasdaq(ticker: str, session: aiohttp.ClientSession):
+    """Načítanie IPO dát z NASDAQ"""
+    url = f"https://www.nasdaq.com/market-activity/ipos/{ticker}"
+    async with session.get(url) as response:
+        if response.status == 200:
+            page_content = await response.text()
+            soup = BeautifulSoup(page_content, 'html.parser')
+            ipo_data = {
+                "company_name": soup.find("h1", class_="company-name").text.strip(),
+                "price_usd": soup.find("span", class_="ipo-price").text.strip(),
+                "market_cap_usd": soup.find("span", class_="market-cap").text.strip(),
+                # Pridaj ďalšie relevantné informácie z NASDAQ
+            }
+            return ipo_data
+        else:
+            print(f"Chyba pri získavaní dát z NASDAQ pre {ticker}")
+            return None
+
+async def fetch_ipo_data_from_benzinga(ticker: str, session: aiohttp.ClientSession):
+    """Načítanie IPO dát z Benzinga"""
+    url = f"https://www.benzinga.com/ipo-calendar/{ticker}"
+    async with session.get(url) as response:
+        if response.status == 200:
+            page_content = await response.text()
+            soup = BeautifulSoup(page_content, 'html.parser')
+            ipo_data = {
+                "company_name": soup.find("h1", class_="company-name").text.strip(),
+                "price_usd": soup.find("span", class_="ipo-price").text.strip(),
+                "market_cap_usd": soup.find("span", class_="market-cap").text.strip(),
+                # Pridaj ďalšie relevantné informácie z Benzinga
+            }
+            return ipo_data
+        else:
+            print(f"Chyba pri získavaní dát z Benzinga pre {ticker}")
+            return None
 
 async def fetch_and_filter_ipo_data(tickers: list):
     """Načítanie a filtrovanie IPO dát pre viacero tickerov asynchrónne"""
     ipo_data = []
     async with aiohttp.ClientSession() as session:
-        tasks = [fetch_ipo_data(ticker, session) for ticker in tickers]
-        results = await asyncio.gather(*tasks)  # Čaká na všetky výsledky súčasne
+        tasks = []
+        for ticker in tickers:
+            tasks.append(fetch_ipo_data_yahoo(ticker))  # Pridáme ďalšie zdroje
+            tasks.append(fetch_ipo_data_from_nasdaq(ticker, session))
+            tasks.append(fetch_ipo_data_from_benzinga(ticker, session))
+        
+        results = await asyncio.gather(*tasks)
         ipo_data = [ipo for ipo in results if ipo]  # Filtrujeme None hodnoty
     logging.info(f"Celkový počet filtrovaných IPO: {len(ipo_data)}")
     return ipo_data
 
-# Funkcia na posielanie alertov pre každé IPO
+# Príklad spustenia
 async def send_alerts():
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
@@ -90,6 +98,5 @@ async def send_alerts():
     results = await asyncio.gather(*tasks)  # Spustíme všetky úlohy súčasne
     logging.info(f"Alerty odoslané: {sum(results)}")
 
-# Spustenie skriptu na testovanie
 if __name__ == "__main__":
     asyncio.run(send_alerts())
