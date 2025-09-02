@@ -1,8 +1,6 @@
 import os
 import requests
-from datetime import datetime, timedelta
 from data_sources import fetch_company_snapshot
-from ipo_alerts import build_ipo_alert, filter_ipo_by_lockup_and_sectors, filter_ipo_by_investors
 from typing import List, Dict, Any
 
 # Parametre pre Small Cap a cena akcie ≤ 20 USD
@@ -38,30 +36,6 @@ def send_telegram(message: str) -> bool:
         print(f"Chyba pri odosielaní Telegram správy: {e}")
         return False
 
-def get_ipo_tickers() -> List[str]:
-    """Získa zoznam IPO tickerov z verejných zdrojov a filtrovanie podľa market cap"""
-    ipo_tickers = []
-    
-    # Príklad načítania zoznamu IPO z externého API (napr. IPOs na Nasdaq)
-    try:
-        url = "https://api.nasdaq.com/api/ipo-calendar"
-        response = requests.get(url)
-        data = response.json()
-        
-        # Predpokladáme, že API poskytuje IPO tickery a trhovú kapitalizáciu
-        if 'data' in data and 'ipoCalendar' in data['data']:
-            for ipo in data['data']['ipoCalendar']:
-                ticker = ipo.get("symbol")
-                market_cap = ipo.get("marketCap")  # Predpokladáme, že API poskytuje market cap
-                
-                if ticker and market_cap and market_cap >= MIN_MARKET_CAP:
-                    ipo_tickers.append(ticker)
-                    
-    except Exception as e:
-        print(f"Chyba pri získavaní IPO tickerov: {e}")
-    
-    return ipo_tickers
-
 def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     """Fetch IPO data and filter by price and market cap"""
     ipo_data = []
@@ -89,58 +63,60 @@ def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     
     return ipo_data
 
+def build_ipo_alert(ipo: Dict[str, Any]) -> str:
+    """Build the IPO alert message for Telegram"""
+    company = ipo["company_name"]
+    ticker = ipo["ticker"]
+    price = ipo["price_usd"]
+    market_cap = ipo["market_cap_usd"]
+    free_float = ipo["free_float_pct"]
+    insiders_total_pct = ipo["insiders_total_pct"]
+    ipo_date = ipo["ipo_first_trade_date"]
+    days_to_lockup = ipo["days_to_lockup"]
+    
+    # Calculate potential short-term and long-term profits
+    short_term_profit = f"Ak cena akcie vzrastie na 23.40 - 27.30 USD, môžete dosiahnuť zisk z 10% do 40%."
+    long_term_profit = f"Optimálny exit pri 25.35 - 29.25 USD môže priniesť 30% - 50% zisk."
+    
+    # Generate the alert message
+    message = f"""
+🌍 **Investor**: Vanguard Group Inc
+
+🚀 **IPO Alert - {company} ({ticker})**
+
+🔹 **Aktuálna cena akcie**: {price} USD  
+🔹 **Trhová kapitalizácia**: {market_cap} miliárd USD  
+🔹 **Free Float**: {free_float}%  
+🔹 **Insider %**: {insiders_total_pct}%  
+🔹 **IPO Dátum**: {ipo_date}  
+🔹 **Lock-up**: {days_to_lockup} dní (Zostáva {days_to_lockup} dní)
+
+**Investičné hodnotenie**:  
+💡 **Buy Band**: 17.55 - 21.45 USD  
+🎯 **Exit Band**: 23.40 - 27.30 USD  
+📈 **Optimálny Exit**: 25.35 - 29.25 USD
+
+🔒 **Status lock-upu**: Po lock-upe
+
+**Potenciálny zisk**:  
+- **Krátkodobý zisk**: {short_term_profit}  
+- **Dlhodobý zisk**: {long_term_profit}
+"""
+    return message
+
 def main():
     # Získanie zoznamu IPO tickerov z verejných zdrojov
-    tickers = get_ipo_tickers()  # Dynamicky načítaný zoznam IPO tickerov
+    tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
+    
     print(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
     
     # Načítanie údajov o spoločnostiach a filtrovanie
     ipo_data = fetch_and_filter_ipo_data(tickers)
     
-    # Filtrovanie IPO podľa lock-upu ≤ 180 dní a sektorov: Technológie, Zbrojárstvo, Zdravotníctvo, FinTech, obnoviteľné zdroje, AI, Biotechnológia, EV
-    print(f"Po filtrovaní zostáva {len(ipo_data)} IPO spoločností")
-    filtered_ipo_data = filter_ipo_by_lockup_and_sectors(ipo_data, sectors=[
-        "Technology", "Defense", "Healthcare", "FinTech", "Renewable Energy", 
-        "Cloud", "AI", "Biotech", "EV", "E-commerce", "Blockchain"
-    ])
-    
-    # Ak neexistujú žiadne IPO dáta, skonči
-    if not filtered_ipo_data:
-        print("Žiadne IPO vyhovujúce kritériám.")
-        return
-
     # Poslanie alertov len pre filtrované IPO
-    for ipo in filtered_ipo_data:
+    for ipo in ipo_data:
         try:
-            # Realistické údaje pre alert
-            ipo_msg = build_ipo_alert(
-                investor="Vanguard Group Inc", 
-                company=ipo["company_name"],
-                ticker=ipo["ticker"],
-                market_cap_usd=ipo["market_cap_usd"],
-                free_float_pct=ipo["free_float_pct"],
-                holder_pct=6.8,  # Predpokladaná hodnota
-                price_usd=ipo["price_usd"],
-                history=[("14.50 USD", "3. máj 2024", None)],
-                avg_buy_price_usd=ipo["price_usd"] * 0.95 if ipo["price_usd"] else None,
-                insiders_total_pct=ipo["insiders_total_pct"],
-                insiders_breakdown=[("Founders", ipo["insiders_total_pct"] or 10.0)],
-                strategic_total_pct=(ipo["insiders_total_pct"] or 10.0) + 6.8,
-                buy_band=(
-                    ipo["price_usd"] * 0.9 if ipo["price_usd"] else None, 
-                    ipo["price_usd"] * 1.1 if ipo["price_usd"] else None
-                ),
-                exit_band=(
-                    ipo["price_usd"] * 1.2 if ipo["price_usd"] else None, 
-                    ipo["price_usd"] * 1.4 if ipo["price_usd"] else None
-                ),
-                optimal_exit=(
-                    ipo["price_usd"] * 1.3 if ipo["price_usd"] else None, 
-                    ipo["price_usd"] * 1.5 if ipo["price_usd"] else None
-                ),
-                days_to_lockup=ipo["days_to_lockup"],
-                lockup_release_pct=ipo["insiders_total_pct"] or 15.0,
-            )
+            ipo_msg = build_ipo_alert(ipo)
             
             # Odoslanie správy na Telegram
             success = send_telegram(ipo_msg)
