@@ -30,11 +30,7 @@ def build_ipo_alert(ipo: dict) -> str:
     if insiders_total_pct < 10:
         strategy += "⚠️ **Nízký Insider Ownership**: Nižší podiel insiderov môže znamenať nižšiu dôveru zo strany zakladateľov a zamestnancov. "
 
-    # Odhad krátkodobého a dlhodobého zisku
-    short_term_profit = f"**Krátkodobý cieľ**: Cena môže vzrásť o 10% až 20% v krátkom horizonte po IPO. Odhadovaný výstup medzi {exit_band_lower} a {exit_band_upper} USD."
-    long_term_profit = f"**Dlhodobý cieľ**: Ak spoločnosť uspeje v raste, cena akcie môže dosiahnuť 25% až 50% zisk v priebehu nasledujúcich 12-18 mesiacov."
-
-    # Vytvorenie formátovaného textu pre alert bez rizikových faktorov
+    # Vytvorenie formátovaného textu pre alert
     message = f"""
 🚀 IPO Alert - {company} ({ticker})
 
@@ -50,8 +46,5 @@ def build_ipo_alert(ipo: dict) -> str:
 
 💡 **Strategický pohľad**: 
 {strategy}
-
-🔮 **Krátkodobá stratégia**: {short_term_profit}
-🌱 **Dlhodobá stratégia**: {long_term_profit}
 """
     return message
