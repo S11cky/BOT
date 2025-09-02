@@ -41,7 +41,7 @@ def send_telegram(message: str) -> bool:
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=10)  # Timeout na 10 sekúnd
+        response = requests.post(url, json=payload, timeout=5)  # Timeout na 5 sekúnd pre API volania
         if response.status_code == 200:
             logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Zobraziť len prvých 50 znakov správy
             return True
@@ -80,7 +80,7 @@ def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
 def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     """Fetch IPO data for multiple tickers using multithreading"""
     ipo_data = []
-    with ThreadPoolExecutor(max_workers=10) as executor:  # Zvýšený počet workerov (vlákien)
+    with ThreadPoolExecutor(max_workers=20) as executor:  # Zvýšený počet workerov na 20
         futures = {executor.submit(fetch_ipo_data, ticker): ticker for ticker in tickers}
         for future in as_completed(futures):
             ipo = future.result()
