@@ -3,6 +3,7 @@ import os
 import requests
 import schedule
 import time
+import aiohttp
 from data_sources import fetch_company_snapshot  # Import z data_sources.py
 from ipo_alerts import build_ipo_alert  # Import z ipo_alerts.py
 from typing import List, Dict, Any
@@ -21,7 +22,7 @@ alert_history = {}
 # Nastavenie logovania
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def send_telegram(message: str) -> bool:
+async def send_telegram(message: str) -> bool:
     """Send message to Telegram"""
     token = os.getenv('TG_TOKEN')
     chat_id = os.getenv('TG_CHAT_ID')
@@ -38,22 +39,23 @@ def send_telegram(message: str) -> bool:
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=5)  # Timeout na 5 sekúnd pre API volania
-        if response.status_code == 200:
-            logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Zobraziť len prvých 50 znakov správy
-            return True
-        else:
-            logging.error(f"Chyba pri odosielaní správy: {response.status_code}")
-            return False
+        async with aiohttp.ClientSession() as session:
+            response = await session.post(url, json=payload, timeout=5)
+            if response.status == 200:
+                logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Zobraziť len prvých 50 znakov správy
+                return True
+            else:
+                logging.error(f"Chyba pri odosielaní správy: {response.status}")
+                return False
     except Exception as e:
         logging.error(f"Chyba pri odosielaní Telegram správy: {e}")
         return False
 
-def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
+async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
     """Fetch IPO data for a single ticker"""
     try:
         logging.info(f"Získavam údaje pre {ticker}...")
-        snap = fetch_company_snapshot(ticker)
+        snap = await fetch_company_snapshot(ticker, session)  # Passing session to the API function
         if snap:
             price = snap.get("price_usd")
             market_cap = snap.get("market_cap_usd")
@@ -76,26 +78,24 @@ def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
         logging.error(f"Chyba pri spracovaní {ticker}: {e}")
     return None
 
-def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
+async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     """Fetch IPO data for multiple tickers using multithreading"""
     ipo_data = []
-    with ThreadPoolExecutor(max_workers=20) as executor:  # Zvýšený počet workerov na 20
-        futures = {executor.submit(fetch_ipo_data, ticker): ticker for ticker in tickers}
-        for future in as_completed(futures):
-            ipo = future.result()
+    async with aiohttp.ClientSession() as session:  # Creating a session to be used in all fetch calls
+        for ticker in tickers:
+            ipo = await fetch_ipo_data(ticker, session)
             if ipo:
                 ipo_data.append(ipo)
-
     logging.info(f"Celkový počet filtrovaných IPO: {len(ipo_data)}")
     return ipo_data
 
-def send_alerts():
+async def send_alerts():
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
     logging.info(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
     
     # Načítanie údajov o spoločnostiach a filtrovanie
-    ipo_data = fetch_and_filter_ipo_data(tickers)
+    ipo_data = await fetch_and_filter_ipo_data(tickers)
     
     logging.info(f"Po filtrovaní: {len(ipo_data)} IPO splnilo kritériá.")
     
@@ -107,7 +107,7 @@ def send_alerts():
             # Prvý alert - Ak IPO ešte nebolo odoslané a splní podmienky
             if ipo['ticker'] not in alert_history:
                 ipo_msg = build_ipo_alert(ipo)
-                send_telegram(ipo_msg)
+                await send_telegram(ipo_msg)
                 alert_history[ipo['ticker']] = {"first_alert_sent": True, "price": ipo.get("price_usd")}
                 logging.info(f"Prvý alert pre {ipo['ticker']} úspešne odoslaný.")
             
@@ -118,19 +118,15 @@ def send_alerts():
                 current_price = ipo.get("price_usd")
                 if buy_band_min <= current_price <= buy_band_max:
                     ipo_msg = build_ipo_alert(ipo)  # Tento alert je rovnaký ako prvý, ale môžeš pridať špecifickú správu
-                    send_telegram(ipo_msg)
+                    await send_telegram(ipo_msg)
                     logging.info(f"Druhý alert pre {ipo['ticker']} úspešne odoslaný.")
         except Exception as e:
             logging.error(f"Chyba pri vytváraní alertu pre {ipo['ticker']}: {e}")
     
     logging.info("Proces dokončený.")
 
-# Nastavenie časovača na spúšťanie každých 15 minút
-schedule.every(15).minutes.do(send_alerts)
-
-# Spustenie plánovača
+# Spustenie skriptu
 if __name__ == "__main__":
     logging.info("Skript sa spustil.")
-    while True:
-        schedule.run_pending()
-        time.sleep(60)  # Skontroluje úlohy každú minútu
+    import asyncio
+    asyncio.run(send_alerts())
