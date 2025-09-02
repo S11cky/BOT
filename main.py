@@ -116,10 +116,15 @@ async def send_alerts():
                 buy_band_min = ipo.get("buy_band_min")
                 buy_band_max = ipo.get("buy_band_max")
                 current_price = ipo.get("price_usd")
-                if buy_band_min <= current_price <= buy_band_max:
-                    ipo_msg = build_ipo_alert(ipo)  # This alert is the same as the first, but can be modified with specific messages
-                    await send_telegram(ipo_msg)
-                    logging.info(f"Second alert for {ipo['ticker']} successfully sent.")
+                
+                # Check if buy_band_min and buy_band_max are not None before comparing
+                if buy_band_min is not None and buy_band_max is not None:
+                    if buy_band_min <= current_price <= buy_band_max:
+                        ipo_msg = build_ipo_alert(ipo)  # This alert is the same as the first, but can be modified with specific messages
+                        await send_telegram(ipo_msg)
+                        logging.info(f"Second alert for {ipo['ticker']} successfully sent.")
+                else:
+                    logging.warning(f"Buy band not available for {ipo['ticker']}.")
         except Exception as e:
             logging.error(f"Error creating alert for {ipo['ticker']}: {e}")
     
