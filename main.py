@@ -1,5 +1,7 @@
 import os
 import requests
+import schedule
+import time
 from data_sources import fetch_company_snapshot
 from typing import List, Dict, Any
 
@@ -104,8 +106,7 @@ def build_ipo_alert(ipo: Dict[str, Any]) -> str:
 """
     return message
 
-def main():
-    # Získanie zoznamu IPO tickerov z verejných zdrojov
+def send_alerts():
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
     print(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
@@ -130,5 +131,10 @@ def main():
     
     print("Proces dokončený.")
 
-if __name__ == "__main__":
-    main()
+# Naplánovanie vykonania úlohy každých 15 minút
+schedule.every(15).minutes.do(send_alerts)
+
+# Spustenie plánovača
+while True:
+    schedule.run_pending()
+    time.sleep(60)
