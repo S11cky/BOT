@@ -1,13 +1,9 @@
 import logging
-import os
 import requests
-import asyncio
-from data_sources import fetch_company_snapshot  # Import asynchrónnej funkcie zo súboru data_sources.py
-from typing import List, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
-import numpy as np
 import aiohttp
+import asyncio
+from typing import Dict, Any
 
 # Parametre pre filtrovanie IPO
 MAX_PRICE = 50  # Maximálna cena akcie
@@ -17,71 +13,82 @@ SECTORS = ["Technology", "Biotechnology", "AI", "Green Technologies", "FinTech",
 # Logovanie
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Funkcia na získanie historických údajov a výpočet volatility
-def get_historical_data(ticker: str):
+# Alpha Vantage API - API kľúč
+ALPHA_VANTAGE_API_KEY = "tvoj_alpha_vantage_api_kluc"
+
+# IEX Cloud API - API kľúč
+IEX_CLOUD_API_KEY = "tvoj_iex_cloud_api_kluc"
+
+# Funkcia na získanie údajov cez Alpha Vantage API
+def fetch_from_alpha_vantage(ticker: str) -> Dict[str, Any]:
     try:
-        # Získame historické údaje za posledné 3 mesiace
-        data = yf.download(ticker, period="3mo", interval="1d")
-        return data
+        url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker}&apikey={ALPHA_VANTAGE_API_KEY}"
+        response = requests.get(url)
+        data = response.json()
+
+        if "Time Series (Daily)" in data:
+            last_close = list(data["Time Series (Daily)"].values())[0]["4. close"]
+            market_cap = None  # Market cap nie je priamo dostupný z Alpha Vantage
+            sector = None  # Sector je tiež dostupný cez iný endpoint
+
+            return {
+                "price_usd": float(last_close),
+                "market_cap_usd": market_cap,
+                "sector": sector
+            }
+        else:
+            logging.warning(f"Chyba pri získavaní dát pre {ticker}: {data}")
+            return None
     except Exception as e:
-        logging.error(f"Chyba pri získavaní historických dát pre {ticker}: {e}")
+        logging.error(f"Chyba pri získavaní dát pre {ticker}: {e}")
         return None
 
-# Funkcia na výpočet volatility na základe historických dát
-def calculate_volatility(data):
-    if data is None or len(data) < 30:  # Min. 30 dní pre volatilitu
-        return None
-    
-    # Výpočet denného percentuálneho zisku
-    data['Returns'] = data['Adj Close'].pct_change()
-    
-    # Výpočet volatility (štandardná odchýlka denných ziskov)
-    volatility = np.std(data['Returns']) * np.sqrt(252)  # Annualizovaná volatilita
-    return volatility
+# Funkcia na získanie údajov cez IEX Cloud API
+def fetch_from_iex_cloud(ticker: str) -> Dict[str, Any]:
+    try:
+        url = f"https://cloud.iexapis.com/stable/stock/{ticker}/quote?token={IEX_CLOUD_API_KEY}"
+        response = requests.get(url)
+        data = response.json()
 
-# Funkcia na dynamické nastavenie Buy Band
-def dynamic_buy_band(price: float, volatility: float):
-    if volatility is None:
-        return None, None
-    
-    # Dynamické pásmo na základe volatility
-    spread = price * volatility  # Spread na základe volatility
-    buy_band_lower = price - spread
-    buy_band_upper = price + spread
-    
-    return buy_band_lower, buy_band_upper
+        price = data.get("latestPrice")
+        market_cap = data.get("marketCap")
+        sector = data.get("sector")
+
+        return {
+            "price_usd": price,
+            "market_cap_usd": market_cap,
+            "sector": sector
+        }
+    except Exception as e:
+        logging.error(f"Chyba pri získavaní dát pre {ticker}: {e}")
+        return None
 
 # Asynchrónna funkcia na získanie IPO dát
-async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession):
+async def fetch_company_snapshot(ticker: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
     try:
-        ipo = await fetch_company_snapshot(ticker, session)
+        # Skúsime najprv Alpha Vantage, potom IEX Cloud, ak Alpha Vantage nevráti dáta
+        ipo = fetch_from_alpha_vantage(ticker)
         if ipo:
-            price = ipo.get("price_usd")
-            market_cap = ipo.get("market_cap_usd")
-            sector = ipo.get("sector", "")
+            return ipo
+        
+        ipo = fetch_from_iex_cloud(ticker)
+        if ipo:
+            return ipo
+        
+        # Ako zálohu použijeme yfinance (ak nič iné nefunguje)
+        company = yf.Ticker(ticker)
+        price = company.history(period="1d")['Close'].iloc[0]
+        market_cap = company.info.get('marketCap', None)
+        sector = company.info.get('sector', '')
 
-            if price is not None and market_cap is not None:
-                if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
-                    if any(sector in sector_name for sector_name in SECTORS):
-                        # Získame historické dáta
-                        historical_data = get_historical_data(ticker)
-                        volatility = calculate_volatility(historical_data)
-                        
-                        # Dynamicky vypočítať Buy band
-                        buy_band_lower, buy_band_upper = dynamic_buy_band(price, volatility)
-                        
-                        return ipo, buy_band_lower, buy_band_upper
-                    else:
-                        logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
-                else:
-                    logging.warning(f"Ignorované IPO {ticker} – cena alebo market cap je mimo kritérií.")
-            else:
-                logging.warning(f"Neúplné dáta pre {ticker}, ignorované.")
-        else:
-            logging.warning(f"Neboli získané dáta pre {ticker}")
+        return {
+            "price_usd": price,
+            "market_cap_usd": market_cap,
+            "sector": sector
+        }
     except Exception as e:
-        logging.error(f"Chyba pri spracovaní {ticker}: {e}")
-    return None, None, None
+        logging.error(f"Chyba pri získavaní dát pre {ticker}: {e}")
+        return None
 
 # Asynchrónna funkcia na odoslanie alertu
 async def send_alert(ticker, price, buy_band_lower, buy_band_upper):
@@ -101,15 +108,22 @@ async def monitor_ipo(tickers):
     async with aiohttp.ClientSession() as session:
         tasks = []
         for ticker in tickers:
-            tasks.append(fetch_ipo_data(ticker, session))
+            tasks.append(fetch_company_snapshot(ticker, session))
         
         results = await asyncio.gather(*tasks)
         
         for ipo_data in results:
-            ipo, buy_band_lower, buy_band_upper = ipo_data
-            if ipo:
-                price = ipo["price_usd"]
-                await send_alert(ipo["sector"], price, buy_band_lower, buy_band_upper)
+            if ipo_data:
+                price = ipo_data.get("price_usd")
+                sector = ipo_data.get("sector", "Unknown")
+                market_cap = ipo_data.get("market_cap_usd")
+                
+                # Dynamicky vypočítať Buy band
+                volatility = 0.05  # Volatilita (ako príklad, môžeš ju upraviť)
+                buy_band_lower = price - (price * volatility)
+                buy_band_upper = price + (price * volatility)
+
+                await send_alert(sector, price, buy_band_lower, buy_band_upper)
 
 # Spustenie asynchrónneho monitorovania IPO spoločností
 if __name__ == "__main__":
