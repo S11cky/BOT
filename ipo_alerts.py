@@ -1,7 +1,7 @@
 import logging
 import requests
 
-# Definovanie funkcie pre získavanie údajov z API
+# Funkcia pre získavanie údajov z API
 def fetch_data_from_api(api_function, ticker):
     try:
         data = api_function(ticker)
@@ -23,8 +23,8 @@ def fetch_data_from_api(api_function, ticker):
 # Funkcia pre generovanie a odoslanie alertu
 def send_alert(ticker, price, market_cap, free_float, insider_percentage, ipo_date, lock_up, buy_band_lower, buy_band_upper, exit_band_lower, exit_band_upper):
     try:
-        # Vytvorenie alertu vo formáte požiadaviek
-        alert_message = f"🚀 <b>IPO Alert - {ticker}</b>\n"
+        # Formátovanie správ podľa požiadaviek
+        alert_message = f"🚀 IPO Alert - {ticker}\n"
         alert_message += f"🔹 Cena akcie: {price} USD\n"
         alert_message += f"🔹 Market Cap: {market_cap} USD\n"
         alert_message += f"🔹 Free Float: {free_float}%\n"
@@ -32,7 +32,7 @@ def send_alert(ticker, price, market_cap, free_float, insider_percentage, ipo_da
         alert_message += f"🔹 IPO Dátum: {ipo_date}\n"
         alert_message += f"🔹 Lock-up: {lock_up} dní\n\n"
 
-        # Optimálne vstupy a výstupy (Buy Band, Exit Band)
+        # Buy/Exit Band
         alert_message += f"📈 Optimálny vstup do pozície (Buy Band): {buy_band_lower} - {buy_band_upper} USD\n"
         alert_message += f"🎯 Optimálny výstup z pozície (Exit Band): {exit_band_lower} - {exit_band_upper} USD\n\n"
 
