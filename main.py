@@ -92,15 +92,14 @@ async def fetch_ipo_data(ticker: str, api: str) -> Dict[str, Any]:
 async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     ipo_data = []
     tasks = []
-    with ThreadPoolExecutor() as executor:
-        for api in API_SERVICES:
-            for ticker in tickers:
-                tasks.append(executor.submit(fetch_ipo_data, ticker, api))
-                
-        for task in tasks:
-            result = task.result()
-            if result:
-                ipo_data.append(result)
+    for api in API_SERVICES:
+        for ticker in tickers:
+            tasks.append(fetch_ipo_data(ticker, api))  # Now awaiting the result of fetch_ipo_data correctly
+            
+    ipo_data = await asyncio.gather(*tasks)  # Wait for all API calls to finish
+    
+    # Filter out None values
+    ipo_data = [ipo for ipo in ipo_data if ipo is not None]
     
     logging.info(f"Total number of filtered IPOs: {len(ipo_data)}")
     return ipo_data
