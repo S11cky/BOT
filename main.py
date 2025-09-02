@@ -1,11 +1,13 @@
 import logging
 import os
 import requests
-from data_sources import fetch_company_snapshot  # Import funkcie zo súboru data_sources.py
+import asyncio
+from data_sources import fetch_company_snapshot  # Import asynchrónnej funkcie zo súboru data_sources.py
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import numpy as np
+import aiohttp
 
 # Parametre pre filtrovanie IPO
 MAX_PRICE = 50  # Maximálna cena akcie
@@ -49,17 +51,15 @@ def dynamic_buy_band(price: float, volatility: float):
     
     return buy_band_lower, buy_band_upper
 
-# Funkcia na filtrovanie IPO dát a generovanie alertov
-def fetch_ipo_data(ticker: str):
+# Asynchrónna funkcia na získanie IPO dát
+async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession):
     try:
-        # Získame IPO dáta (predpokladáme, že fetch_company_snapshot už je implementovaná)
-        ipo = fetch_company_snapshot(ticker)
+        ipo = await fetch_company_snapshot(ticker, session)
         if ipo:
             price = ipo.get("price_usd")
             market_cap = ipo.get("market_cap_usd")
             sector = ipo.get("sector", "")
 
-            # Filtrujeme IPO podľa ceny, trhovej kapitalizácie a sektora
             if price is not None and market_cap is not None:
                 if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
                     if any(sector in sector_name for sector_name in SECTORS):
@@ -83,8 +83,8 @@ def fetch_ipo_data(ticker: str):
         logging.error(f"Chyba pri spracovaní {ticker}: {e}")
     return None, None, None
 
-# Funkcia na poslanie alertu
-def send_alert(ticker, price, buy_band_lower, buy_band_upper):
+# Asynchrónna funkcia na odoslanie alertu
+async def send_alert(ticker, price, buy_band_lower, buy_band_upper):
     if buy_band_lower is None or buy_band_upper is None:
         return
     
@@ -96,15 +96,22 @@ def send_alert(ticker, price, buy_band_lower, buy_band_upper):
     # Pošleme alert (predpokladáme, že send_telegram je už implementovaná)
     send_telegram(alert_message)
 
-# Hlavná funkcia na monitorovanie IPO
-def monitor_ipo(tickers):
-    for ticker in tickers:
-        ipo, buy_band_lower, buy_band_upper = fetch_ipo_data(ticker)
-        if ipo:
-            price = ipo["price_usd"]
-            send_alert(ticker, price, buy_band_lower, buy_band_upper)
+# Asynchrónna funkcia na monitorovanie IPO
+async def monitor_ipo(tickers):
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for ticker in tickers:
+            tasks.append(fetch_ipo_data(ticker, session))
+        
+        results = await asyncio.gather(*tasks)
+        
+        for ipo_data in results:
+            ipo, buy_band_lower, buy_band_upper = ipo_data
+            if ipo:
+                price = ipo["price_usd"]
+                await send_alert(ipo["sector"], price, buy_band_lower, buy_band_upper)
 
-# Spustenie monitorovania IPO spoločností
+# Spustenie asynchrónneho monitorovania IPO spoločností
 if __name__ == "__main__":
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
-    monitor_ipo(tickers)
+    asyncio.run(monitor_ipo(tickers))
