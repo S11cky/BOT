@@ -4,8 +4,8 @@ import aiohttp
 import asyncio
 import yfinance as yf
 import requests
-from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
+from typing import List, Dict, Any
 
 # Parametre pre Small Cap a cena akcie ≤ 50 USD
 MAX_PRICE = 50  # Maximum stock price
@@ -65,12 +65,30 @@ async def fetch_ipo_data(ticker: str, api: str) -> Dict[str, Any]:
             sector = info.get("sector", "")
             
         elif api == "alphavantage":
-            # Add Alpha Vantage API logic here
-            pass
+            # Alpha Vantage API call
+            url = f"https://www.alphavantage.co/query"
+            params = {
+                "function": "TIME_SERIES_INTRADAY",
+                "symbol": ticker,
+                "interval": "5min",
+                "apikey": os.getenv('ALPHA_VANTAGE_KEY')
+            }
+            response = requests.get(url, params=params).json()
+            price = response.get("Time Series (5min)", {}).get("close", None)
+            market_cap = None  # You can add market cap fetching from another API or database
+            sector = "Unknown"
         
         elif api == "finnhub":
-            # Add Finnhub API logic here
-            pass
+            # Finnhub API call
+            url = f"https://finnhub.io/api/v1/quote"
+            params = {
+                "symbol": ticker,
+                "token": os.getenv('FINNHUB_API_KEY')
+            }
+            response = requests.get(url, params=params).json()
+            price = response.get("c", None)  # Current price
+            market_cap = None  # Finnhub does not provide market cap directly
+            sector = "Unknown"
         
         # Add logic for other APIs here...
 
@@ -92,11 +110,12 @@ async def fetch_ipo_data(ticker: str, api: str) -> Dict[str, Any]:
 async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     ipo_data = []
     tasks = []
-    for api in API_SERVICES:
-        for ticker in tickers:
-            tasks.append(fetch_ipo_data(ticker, api))  # Now awaiting the result of fetch_ipo_data correctly
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for api in API_SERVICES:
+            for ticker in tickers:
+                tasks.append(fetch_ipo_data(ticker, api))  # Now awaiting the result of fetch_ipo_data correctly
             
-    ipo_data = await asyncio.gather(*tasks)  # Wait for all API calls to finish
+        ipo_data = await asyncio.gather(*tasks)  # Wait for all API calls to finish
     
     # Filter out None values
     ipo_data = [ipo for ipo in ipo_data if ipo is not None]
