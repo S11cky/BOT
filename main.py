@@ -2,7 +2,8 @@ import os
 import requests
 import schedule
 import time
-from data_sources import fetch_company_snapshot
+from data_sources import fetch_company_snapshot  # Import z data_sources.py
+from ipo_alerts import build_ipo_alert  # Import z ipo_alerts.py
 from typing import List, Dict, Any
 
 # Parametre pre Small Cap a cena akcie ≤ 20 USD
@@ -10,10 +11,20 @@ MAX_PRICE = 20
 MIN_MARKET_CAP = 1e9  # Minimálna trhová kapitalizácia pre IPO spoločnosti (1 miliarda USD)
 
 # Zoznam investorov (napr. VC, Top spoločnosti, Billionaires)
-VC_FUNDS = ['Sequoia Capital', 'Andreessen Horowitz', 'Benchmark', 'Greylock', 'Insight Partners']
+VC_FUNDS = ['Vanguard Group Inc.', 'Sequoia Capital', 'Andreessen Horowitz', 'Benchmark', 'Greylock Partners', 'Insight Partners']
 TOP_COMPANIES = ['Apple', 'Microsoft', 'Google', 'Amazon', 'Facebook', 'Berkshire Hathaway']
 TOP_BILLIONAIRES = ['Elon Musk', 'Jeff Bezos', 'Bill Gates', 'Warren Buffett', 'Mark Zuckerberg']
 ALL_INVESTORS = VC_FUNDS + TOP_COMPANIES + TOP_BILLIONAIRES
+
+# Načítanie zoznamu tickerov z iného zdroja alebo súboru
+def load_companies_from_yaml(yaml_file: str) -> List[str]:
+    try:
+        with open(yaml_file, 'r') as file:
+            data = yaml.safe_load(file)
+            return data.get('companies', [])
+    except Exception as e:
+        print(f"Chyba pri načítaní YAML súboru: {e}")
+        return []
 
 def send_telegram(message: str) -> bool:
     """Send message to Telegram"""
@@ -44,7 +55,7 @@ def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     for ticker in tickers:
         try:
             print(f"Získavam údaje pre {ticker}...")
-            snap = fetch_company_snapshot(ticker)
+            snap = fetch_company_snapshot(ticker)  # Volanie funkcie z data_sources.py
             if snap:
                 price = snap.get("price_usd")
                 market_cap = snap.get("market_cap_usd")
@@ -65,48 +76,8 @@ def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     
     return ipo_data
 
-def build_ipo_alert(ipo: Dict[str, Any]) -> str:
-    """Build the IPO alert message for Telegram"""
-    company = ipo["company_name"]
-    ticker = ipo["ticker"]
-    price = ipo["price_usd"]
-    market_cap = ipo["market_cap_usd"]
-    free_float = ipo["free_float_pct"]
-    insiders_total_pct = ipo["insiders_total_pct"]
-    ipo_date = ipo["ipo_first_trade_date"]
-    days_to_lockup = ipo["days_to_lockup"]
-    
-    # Calculate potential short-term and long-term profits
-    short_term_profit = f"Ak cena akcie vzrastie na 23.40 - 27.30 USD, môžete dosiahnuť zisk z 10% do 40%."
-    long_term_profit = f"Optimálny exit pri 25.35 - 29.25 USD môže priniesť 30% - 50% zisk."
-    
-    # Generate the alert message
-    message = f"""
-🌍 **Investor**: Vanguard Group Inc
-
-🚀 **IPO Alert - {company} ({ticker})**
-
-🔹 **Aktuálna cena akcie**: {price} USD  
-🔹 **Trhová kapitalizácia**: {market_cap} miliárd USD  
-🔹 **Free Float**: {free_float}%  
-🔹 **Insider %**: {insiders_total_pct}%  
-🔹 **IPO Dátum**: {ipo_date}  
-🔹 **Lock-up**: {days_to_lockup} dní (Zostáva {days_to_lockup} dní)
-
-**Investičné hodnotenie**:  
-💡 **Buy Band**: 17.55 - 21.45 USD  
-🎯 **Exit Band**: 23.40 - 27.30 USD  
-📈 **Optimálny Exit**: 25.35 - 29.25 USD
-
-🔒 **Status lock-upu**: Po lock-upe
-
-**Potenciálny zisk**:  
-- **Krátkodobý zisk**: {short_term_profit}  
-- **Dlhodobý zisk**: {long_term_profit}
-"""
-    return message
-
 def send_alerts():
+    # Zoznam tickerov firiem, ktorý môže byť načítaný zo súboru YAML alebo iného zdroja
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
     print(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
@@ -117,7 +88,7 @@ def send_alerts():
     # Poslanie alertov len pre filtrované IPO
     for ipo in ipo_data:
         try:
-            ipo_msg = build_ipo_alert(ipo)
+            ipo_msg = build_ipo_alert(ipo)  # Vytvorenie alertu pomocou ipo_alerts.py
             
             # Odoslanie správy na Telegram
             success = send_telegram(ipo_msg)
