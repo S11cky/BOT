@@ -7,6 +7,7 @@ from data_sources import fetch_company_snapshot  # Import z data_sources.py
 from ipo_alerts import build_ipo_alert  # Import z ipo_alerts.py
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import aiohttp
 
 # Parametre pre Small Cap a cena akcie ≤ 50 USD
 MAX_PRICE = 50  # Zvýšená cena akcie
@@ -24,7 +25,7 @@ TOP_COMPANIES = ['Apple', 'Microsoft', 'Google', 'Amazon', 'Facebook', 'Berkshir
 TOP_BILLIONAIRES = ['Elon Musk', 'Jeff Bezos', 'Bill Gates', 'Warren Buffett', 'Mark Zuckerberg']
 ALL_INVESTORS = VC_FUNDS + TOP_COMPANIES + TOP_BILLIONAIRES
 
-def send_telegram(message: str) -> bool:
+async def send_telegram(message: str) -> bool:
     """Send message to Telegram"""
     token = os.getenv('TG_TOKEN')
     chat_id = os.getenv('TG_CHAT_ID')
@@ -41,22 +42,23 @@ def send_telegram(message: str) -> bool:
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=5)  # Timeout na 5 sekúnd pre API volania
-        if response.status_code == 200:
-            logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Zobraziť len prvých 50 znakov správy
-            return True
-        else:
-            logging.error(f"Chyba pri odosielaní správy: {response.status_code}")
-            return False
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=5) as response:
+                if response.status == 200:
+                    logging.info(f"Správa úspešne odoslaná: {message[:50]}...")
+                    return True
+                else:
+                    logging.error(f"Chyba pri odosielaní správy: {response.status}")
+                    return False
     except Exception as e:
         logging.error(f"Chyba pri odosielaní Telegram správy: {e}")
         return False
 
-def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
+async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
     """Fetch IPO data for a single ticker"""
     try:
         logging.info(f"Získavam údaje pre {ticker}...")
-        snap = fetch_company_snapshot(ticker)
+        snap = await fetch_company_snapshot(ticker, session)
         if snap:
             price = snap.get("price_usd")
             market_cap = snap.get("market_cap_usd")
@@ -77,26 +79,24 @@ def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
         logging.error(f"Chyba pri spracovaní {ticker}: {e}")
     return None
 
-def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
+async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
     """Fetch IPO data for multiple tickers using multithreading"""
     ipo_data = []
-    with ThreadPoolExecutor(max_workers=20) as executor:  # Zvýšený počet workerov na 20
-        futures = {executor.submit(fetch_ipo_data, ticker): ticker for ticker in tickers}
-        for future in as_completed(futures):
-            ipo = future.result()
-            if ipo:
-                ipo_data.append(ipo)
+    async with aiohttp.ClientSession() as session:  # Otvorenie jednej relácie pre všetky tickery
+        tasks = [fetch_ipo_data(ticker, session) for ticker in tickers]
+        ipo_data = await asyncio.gather(*tasks)
 
+    ipo_data = [ipo for ipo in ipo_data if ipo]  # Filter out None values
     logging.info(f"Celkový počet filtrovaných IPO: {len(ipo_data)}")
     return ipo_data
 
-def send_alerts():
+async def send_alerts():
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
     logging.info(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
     
     # Načítanie údajov o spoločnostiach a filtrovanie
-    ipo_data = fetch_and_filter_ipo_data(tickers)
+    ipo_data = await fetch_and_filter_ipo_data(tickers)
     
     # Poslanie alertov len pre filtrované IPO
     for ipo in ipo_data:
@@ -104,7 +104,7 @@ def send_alerts():
             ipo_msg = build_ipo_alert(ipo)  # Opravené volanie funkcie, teraz správne s argumentom ipo
             
             # Odoslanie správy na Telegram
-            success = send_telegram(ipo_msg)
+            success = await send_telegram(ipo_msg)
             if success:
                 logging.info(f"Alert pre {ipo['ticker']} úspešne odoslaný.")
             else:
@@ -115,7 +115,7 @@ def send_alerts():
     logging.info("Proces dokončený.")
 
 # Nastavenie časovača na spúšťanie každých 15 minút
-schedule.every(15).minutes.do(send_alerts)
+schedule.every(15).minutes.do(lambda: asyncio.run(send_alerts()))
 
 # Spustenie plánovača
 if __name__ == "__main__":
