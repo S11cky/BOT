@@ -1,50 +1,38 @@
 def build_ipo_alert(ipo: dict) -> str:
-    """Vytvorenie textu alertu pre Telegram na základe IPO dát so strategickým pohľadom"""
+    """Vytvorí formátovaný alert pre IPO spoločnosť v požadovanom formáte"""
+    company_name = ipo.get("company_name", "N/A")
+    ticker = ipo.get("ticker", "N/A")
+    price = ipo.get("price_usd", "N/A")
+    market_cap = ipo.get("market_cap_usd", "N/A")
+    free_float_pct = ipo.get("free_float_pct", "N/A")
+    insiders_pct = ipo.get("insiders_total_pct", "N/A")
+    ipo_first_trade_date = ipo.get("ipo_first_trade_date", "N/A")
+    days_to_lockup = ipo.get("days_to_lockup", "N/A")
     
-    # Získanie dát z IPO dictu
-    company = ipo["company_name"]
-    ticker = ipo["ticker"]
-    price = ipo["price_usd"]
-    market_cap = ipo["market_cap_usd"]
-    free_float = ipo.get("free_float_pct", 0)
-    insiders_total_pct = ipo.get("insiders_total_pct", 0)
-    ipo_date = ipo.get("ipo_first_trade_date", "Neznámy")
-    days_to_lockup = ipo.get("days_to_lockup", "Neznámy")
+    # Definovanie optimálnych pásiem (buy, exit) podľa ceny IPO
+    buy_band_min = ipo.get("buy_band_min", "N/A")
+    buy_band_max = ipo.get("buy_band_max", "N/A")
+    exit_band_min = ipo.get("exit_band_min", "N/A")
+    exit_band_max = ipo.get("exit_band_max", "N/A")
     
-    # Zaokrúhlenie hodnôt na rozumný počet desatinných miest
-    price = round(price, 2)
-    market_cap = round(market_cap / 1e9, 2)  # Trhová kapitalizácia v miliardách USD
-    free_float = round(free_float, 2)
-    insiders_total_pct = round(insiders_total_pct, 2)
-    
-    # Výpočty pre optimálny vstup a výstup (Buy band a Exit band)
-    buy_band_lower = round(price * 0.85, 2)  # 15% pod aktuálnou cenou
-    buy_band_upper = round(price * 0.90, 2)  # 10% pod aktuálnou cenou
-    exit_band_lower = round(price * 1.10, 2)  # 10% nad aktuálnou cenou
-    exit_band_upper = round(price * 1.20, 2)  # 20% nad aktuálnou cenou
-    
-    # Definovanie stratégie (strategický pohľad)
-    strategy = ""
-    if free_float > 70:
-        strategy += "🔑 **Silný Free Float**: Tento IPO má silný free float, čo môže naznačovať vyššiu likviditu a väčší záujem o akcie. Môže to byť vhodná príležitosť na nákup. "
-    if insiders_total_pct < 10:
-        strategy += "⚠️ **Nízký Insider Ownership**: Nižší podiel insiderov môže znamenať nižšiu dôveru zo strany zakladateľov a zamestnancov. "
-
-    # Vytvorenie formátovaného textu pre alert
+    # Formátovaná správa pre Telegram
     message = f"""
-🚀 IPO Alert - {company} ({ticker})
+🚀 <b>IPO Alert - {company_name} ({ticker})</b>
 
-🔹 **Cena akcie**: {price} USD
-🔹 **Market Cap**: {market_cap} miliárd USD
-🔹 **Free Float**: {free_float}%
-🔹 **Insider %**: {insiders_total_pct}%
-🔹 **IPO Dátum**: {ipo_date}
-🔹 **Lock-up**: {days_to_lockup} dní
+🔹 <i>Cena akcie</i>: {price} USD
+🔹 <i>Market Cap</i>: {market_cap} USD
+🔹 <i>Free Float</i>: {free_float_pct}%
+🔹 <i>Insider %</i>: {insiders_pct}%
+🔹 <i>IPO Dátum</i>: {ipo_first_trade_date}
+🔹 <i>Lock-up</i>: {days_to_lockup} dní
 
-📈 **Optimálny vstup do pozície (Buy Band)**: {buy_band_lower} - {buy_band_upper} USD
-🎯 **Optimálny výstup z pozície (Exit Band)**: {exit_band_lower} - {exit_band_upper} USD
+📈 <b>Optimálny vstup do pozície (Buy Band)</b>: {buy_band_min} - {buy_band_max} USD
+🎯 <b>Optimálny výstup z pozície (Exit Band)</b>: {exit_band_min} - {exit_band_max} USD
 
-💡 **Strategický pohľad**: 
-{strategy}
+💡 <b>Strategický pohľad</b>: 
+🔑 <i>Silný Free Float</i>: Tento IPO má silný free float, čo môže naznačovať vyššiu likviditu a väčší záujem o akcie. Môže to byť vhodná príležitosť na nákup. ⚠️ <i>Nízký Insider Ownership</i>: Nižší podiel insiderov môže znamenať nižšiu dôveru zo strany zakladateľov a zamestnancov. 
+
+🔮 <b>Krátkodobá stratégia</b>: <i>Krátkodobý cieľ</i>: Cena môže vzrásť o 10% až 20% v krátkom horizonte po IPO. Odhadovaný výstup medzi {exit_band_min} a {exit_band_max} USD.
+🌱 <b>Dlhodobá stratégia</b>: <i>Dlhodobý cieľ</i>: Ak spoločnosť uspeje v raste, cena akcie môže dosiahnuť 25% až 50% zisk v priebehu nasledujúcich 12-18 mesiacov.
 """
     return message
