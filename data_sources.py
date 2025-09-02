@@ -1,27 +1,22 @@
-import yfinance as yf
 import aiohttp
 
 async def fetch_company_snapshot(ticker: str, session: aiohttp.ClientSession):
-    """Získa údaje o spoločnosti podľa tickeru pomocou yfinance."""
+    """Asynchrónne načítanie údajov o akcii cez aiohttp"""
     try:
-        # Získanie údajov o akcii zo zdroja Yahoo Finance
-        company = yf.Ticker(ticker)
-        ipo_data = company.info
+        url = f"https://api.example.com/stocks/{ticker}"  # Tu použiješ správnu URL API na získanie údajov
+        async with session.get(url) as response:
+            data = await response.json()
 
-        # Extrahovanie potrebných údajov
-        snapshot = {
-            "company_name": ipo_data.get("shortName", "N/A"),
-            "ticker": ticker,
-            "price_usd": ipo_data.get("regularMarketPrice", 0),
-            "market_cap_usd": ipo_data.get("marketCap", 0),
-            "sector": ipo_data.get("sector", ""),
-            "free_float_pct": ipo_data.get("floatShares", 0) / ipo_data.get("sharesOutstanding", 1) * 100,
-            "insiders_total_pct": ipo_data.get("insiderOwnership", 0),
-            "ipo_first_trade_date": ipo_data.get("ipoStartDate", "N/A"),
-            "days_to_lockup": ipo_data.get("daysToLockup", "N/A")
+        # Predpokladajme, že API vráti údaje v tomto formáte
+        price = data.get("price_usd")
+        market_cap = data.get("market_cap_usd")
+        sector = data.get("sector", "")
+
+        return {
+            "price_usd": price,
+            "market_cap_usd": market_cap,
+            "sector": sector
         }
-
-        return snapshot
     except Exception as e:
-        print(f"Chyba pri získavaní dát o spoločnosti {ticker}: {e}")
+        print(f"Error fetching data for {ticker}: {e}")
         return None
