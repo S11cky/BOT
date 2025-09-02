@@ -15,14 +15,11 @@ MIN_MARKET_CAP = 5e8  # Minimálna trhová kapitalizácia 500 miliónov USD
 # Vybrané sektory pre filtrovanie IPO spoločností
 SECTORS = ["Technológie", "Biotechnológia", "AI", "Zelené technológie", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonómne vozidlá", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
 
+# Uchovávanie histórie poslaných alertov
+alert_history = {}
+
 # Nastavenie logovania
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Zoznam investorov (napr. VC, Top spoločnosti, Billionaires)
-VC_FUNDS = ['Vanguard Group Inc.', 'Sequoia Capital', 'Andreessen Horowitz', 'Benchmark', 'Greylock Partners', 'Insight Partners']
-TOP_COMPANIES = ['Apple', 'Microsoft', 'Google', 'Amazon', 'Facebook', 'Berkshire Hathaway']
-TOP_BILLIONAIRES = ['Elon Musk', 'Jeff Bezos', 'Bill Gates', 'Warren Buffett', 'Mark Zuckerberg']
-ALL_INVESTORS = VC_FUNDS + TOP_COMPANIES + TOP_BILLIONAIRES
 
 def send_telegram(message: str) -> bool:
     """Send message to Telegram"""
@@ -101,14 +98,23 @@ def send_alerts():
     # Poslanie alertov len pre filtrované IPO
     for ipo in ipo_data:
         try:
-            ipo_msg = build_ipo_alert(ipo)  # Opravené volanie funkcie, teraz správne s argumentom ipo
+            # Prvý alert - Ak IPO ešte nebolo odoslané a splní podmienky
+            if ipo['ticker'] not in alert_history:
+                ipo_msg = build_ipo_alert(ipo)
+                send_telegram(ipo_msg)
+                alert_history[ipo['ticker']] = {"first_alert_sent": True, "price": ipo.get("price_usd")}
+                logging.info(f"Prvý alert pre {ipo['ticker']} úspešne odoslaný.")
             
-            # Odoslanie správy na Telegram
-            success = send_telegram(ipo_msg)
-            if success:
-                logging.info(f"Alert pre {ipo['ticker']} úspešne odoslaný.")
-            else:
-                logging.error(f"Chyba pri odosielaní alertu pre {ipo['ticker']}")
+            # Druhý alert - Ak cena akcie vstúpi do optimálneho nákupného pásma (Buy Band)
+            if ipo['ticker'] in alert_history:
+                buy_band_min = ipo.get("buy_band_min")
+                buy_band_max = ipo.get("buy_band_max")
+                current_price = ipo.get("price_usd")
+                if buy_band_min <= current_price <= buy_band_max:
+                    # Odošli druhý alert
+                    ipo_msg = build_ipo_alert(ipo)  # Tento alert je rovnaký ako prvý, ale môžeš pridať špecifickú správu
+                    send_telegram(ipo_msg)
+                    logging.info(f"Druhý alert pre {ipo['ticker']} úspešne odoslaný.")
         except Exception as e:
             logging.error(f"Chyba pri vytváraní alertu pre {ipo['ticker']}: {e}")
     
