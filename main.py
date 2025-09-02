@@ -4,6 +4,7 @@ import requests
 from data_sources import fetch_company_snapshot  # Import z data_sources.py
 from ipo_alerts import build_ipo_alert  # Import z ipo_alerts.py
 from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Parametre pre Small Cap a cena akcie ≤ 50 USD
 MAX_PRICE = 50  # Zvýšená cena akcie
@@ -49,36 +50,41 @@ def send_telegram(message: str) -> bool:
         logging.error(f"Chyba pri odosielaní Telegram správy: {e}")
         return False
 
-def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
-    """Fetch IPO data and filter by price, market cap, and sector"""
-    ipo_data = []
-    for ticker in tickers:
-        try:
-            logging.info(f"Získavam údaje pre {ticker}...")
-            snap = fetch_company_snapshot(ticker)
-            if snap:
-                price = snap.get("price_usd")
-                market_cap = snap.get("market_cap_usd")
-                sector = snap.get("sector", "")
-
-                # Filtrovanie podľa ceny a trhovej kapitalizácie
-                if price is not None and market_cap is not None:
-                    if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
-                        # Filtrovanie podľa sektora
-                        if any(sector in sector_name for sector_name in SECTORS):
-                            ipo_data.append(snap)
-                            logging.info(f"Údaje pre {ticker} úspešne načítané.")
-                        else:
-                            logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
+def fetch_ipo_data(ticker: str) -> Dict[str, Any]:
+    """Fetch IPO data for a single ticker"""
+    try:
+        logging.info(f"Získavam údaje pre {ticker}...")
+        snap = fetch_company_snapshot(ticker)
+        if snap:
+            price = snap.get("price_usd")
+            market_cap = snap.get("market_cap_usd")
+            sector = snap.get("sector", "")
+            if price is not None and market_cap is not None:
+                if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
+                    if any(sector in sector_name for sector_name in SECTORS):
+                        return snap
                     else:
-                        logging.warning(f"Ignorované IPO {ticker} – cena alebo market cap je mimo kritérií.")
+                        logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
                 else:
-                    logging.warning(f"Neúplné dáta pre {ticker}, ignorované.")
+                    logging.warning(f"Ignorované IPO {ticker} – cena alebo market cap je mimo kritérií.")
             else:
-                logging.warning(f"Neboli získané dáta pre {ticker}")
-        except Exception as e:
-            logging.error(f"Chyba pri spracovaní {ticker}: {e}")
-    
+                logging.warning(f"Neúplné dáta pre {ticker}, ignorované.")
+        else:
+            logging.warning(f"Neboli získané dáta pre {ticker}")
+    except Exception as e:
+        logging.error(f"Chyba pri spracovaní {ticker}: {e}")
+    return None
+
+def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
+    """Fetch IPO data for multiple tickers using multithreading"""
+    ipo_data = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(fetch_ipo_data, ticker): ticker for ticker in tickers}
+        for future in as_completed(futures):
+            ipo = future.result()
+            if ipo:
+                ipo_data.append(ipo)
+
     logging.info(f"Celkový počet filtrovaných IPO: {len(ipo_data)}")
     return ipo_data
 
