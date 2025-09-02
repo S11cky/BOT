@@ -1,23 +1,33 @@
+name: Run IPO Alerts
+
+on:
+  schedule:
+    - cron: '0 */15 * * *'  # This runs every 15 minutes
+
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
+      # Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v2
 
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.x'
+          python-version: '3.x'  # Use the Python version that suits you
 
+      # Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Run the main script
       - name: Run main.py
         env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}  # Telegram bot token
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}  # Telegram chat ID
         run: |
           python main.py
