@@ -1,7 +1,11 @@
+import logging
+import os
+import requests
+from data_sources import fetch_company_snapshot  # Import funkcie zo súboru data_sources.py
+from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import numpy as np
-import logging
-from datetime import datetime, timedelta
 
 # Parametre pre filtrovanie IPO
 MAX_PRICE = 50  # Maximálna cena akcie
@@ -14,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Funkcia na získanie historických údajov a výpočet volatility
 def get_historical_data(ticker: str):
     try:
-        # Získame historické údaje za posledných 3 mesiace
+        # Získame historické údaje za posledné 3 mesiace
         data = yf.download(ticker, period="3mo", interval="1d")
         return data
     except Exception as e:
@@ -39,7 +43,6 @@ def dynamic_buy_band(price: float, volatility: float):
         return None, None
     
     # Dynamické pásmo na základe volatility
-    # Pásmo sa bude rozširovať pri vyššej volatilite
     spread = price * volatility  # Spread na základe volatility
     buy_band_lower = price - spread
     buy_band_upper = price + spread
