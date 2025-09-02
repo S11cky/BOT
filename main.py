@@ -1,28 +1,20 @@
 import logging
 import os
 import requests
-import schedule
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_sources import fetch_company_snapshot  # Import from data_sources.py
 from ipo_alerts import build_ipo_alert  # Import from ipo_alerts.py
 from typing import List, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Parameters for Small Cap and price <= 50 USD
+# Parametre pre Small Cap a cena akcie ≤ 50 USD
 MAX_PRICE = 50  # Maximum stock price
 MIN_MARKET_CAP = 5e8  # Minimum market cap of 500 million USD
 
-# Selected sectors for filtering IPO companies
+# Vybrané sektory pre filtrovanie IPO spoločností
 SECTORS = ["Technology", "Biotechnology", "AI", "GreenTech", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonomous Vehicles", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# List of investors (e.g., VC, Top companies, Billionaires)
-VC_FUNDS = ['Vanguard Group Inc.', 'Sequoia Capital', 'Andreessen Horowitz', 'Benchmark', 'Greylock Partners', 'Insight Partners']
-TOP_COMPANIES = ['Apple', 'Microsoft', 'Google', 'Amazon', 'Facebook', 'Berkshire Hathaway']
-TOP_BILLIONAIRES = ['Elon Musk', 'Jeff Bezos', 'Bill Gates', 'Warren Buffett', 'Mark Zuckerberg']
-ALL_INVESTORS = VC_FUNDS + TOP_COMPANIES + TOP_BILLIONAIRES
 
 def send_telegram(message: str) -> bool:
     """Send message to Telegram"""
@@ -87,6 +79,8 @@ def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
             ipo = future.result()
             if ipo:
                 ipo_data.append(ipo)
+            else:
+                logging.warning(f"Failed to fetch data for ticker in future: {futures[future]}")
 
     logging.info(f"Total number of filtered IPOs: {len(ipo_data)}")
     return ipo_data
@@ -115,12 +109,6 @@ def send_alerts():
 
     logging.info("Process completed.")
 
-# Scheduling the alert sending function to run every 15 minutes
-schedule.every(15).minutes.do(send_alerts)
-
-# Running the scheduler
 if __name__ == "__main__":
     logging.info("Script started.")
-    while True:
-        schedule.run_pending()
-        time.sleep(60)  # Check for pending tasks every minute
+    send_alerts()  # Call to send alerts once
