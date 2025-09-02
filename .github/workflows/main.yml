@@ -1,33 +1,37 @@
 name: Run IPO Alerts
 
 on:
+  # Spustí workflow manuálne cez tlačidlo "Run workflow"
+  workflow_dispatch:
+
+  # Spustí workflow podľa plánu (každých 15 minút)
   schedule:
-    - cron: '0 */15 * * *'  # This runs every 15 minutes
+    - cron: '0 */15 * * *'  # Spúšťa workflow každých 15 minút
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      # Step 1: Checkout the repository
+      # Checkout kódu
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Step 2: Set up Python
+      # Nastavenie Python prostredia
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.x'  # Use the Python version that suits you
+          python-version: '3.x'
 
-      # Step 3: Install dependencies
+      # Inštalácia závislostí
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Step 4: Run the main Python script
+      # Spustenie Python skriptu
       - name: Run main.py
         env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}  # Telegram bot token from GitHub Secrets
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}  # Telegram chat ID from GitHub Secrets
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}  # Telegram bot token
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}  # Telegram chat ID
         run: |
           python main.py
