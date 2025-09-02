@@ -4,22 +4,22 @@ import requests
 import schedule
 import time
 import aiohttp
-from data_sources import fetch_company_snapshot  # Import z data_sources.py
-from ipo_alerts import build_ipo_alert  # Import z ipo_alerts.py
+from data_sources import fetch_company_snapshot  # Import from data_sources.py
+from ipo_alerts import build_ipo_alert  # Import from ipo_alerts.py
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Parametre pre Small Cap a cena akcie ≤ 50 USD
-MAX_PRICE = 50  # Zvýšená cena akcie
-MIN_MARKET_CAP = 5e8  # Minimálna trhová kapitalizácia 500 miliónov USD
+# Parameters for Small Cap and stock price ≤ 50 USD
+MAX_PRICE = 50  # Maximum stock price
+MIN_MARKET_CAP = 5e8  # Minimum market capitalization 500 million USD
 
-# Vybrané sektory pre filtrovanie IPO spoločností
-SECTORS = ["Technológie", "Biotechnológia", "AI", "Zelené technológie", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonómne vozidlá", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
+# Selected sectors for filtering IPO companies (translated to English)
+SECTORS = ["Technology", "Biotechnology", "AI", "Green Technologies", "FinTech", "E-commerce", "HealthTech", "SpaceTech", "Autonomous Vehicles", "Cybersecurity", "Agritech", "EdTech", "RetailTech"]
 
-# Uchovávanie histórie poslaných alertov
+# Storing history of sent alerts
 alert_history = {}
 
-# Nastavenie logovania
+# Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 async def send_telegram(message: str) -> bool:
@@ -28,7 +28,7 @@ async def send_telegram(message: str) -> bool:
     chat_id = os.getenv('TG_CHAT_ID')
     
     if not token or not chat_id:
-        logging.error("Chýbajúce Telegram credentials!")
+        logging.error("Missing Telegram credentials!")
         return False
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -42,40 +42,40 @@ async def send_telegram(message: str) -> bool:
         async with aiohttp.ClientSession() as session:
             response = await session.post(url, json=payload, timeout=5)
             if response.status == 200:
-                logging.info(f"Správa úspešne odoslaná: {message[:50]}...")  # Zobraziť len prvých 50 znakov správy
+                logging.info(f"Message successfully sent: {message[:50]}...")  # Show only first 50 characters
                 return True
             else:
-                logging.error(f"Chyba pri odosielaní správy: {response.status}")
+                logging.error(f"Error sending message: {response.status}")
                 return False
     except Exception as e:
-        logging.error(f"Chyba pri odosielaní Telegram správy: {e}")
+        logging.error(f"Error sending Telegram message: {e}")
         return False
 
 async def fetch_ipo_data(ticker: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
     """Fetch IPO data for a single ticker"""
     try:
-        logging.info(f"Získavam údaje pre {ticker}...")
+        logging.info(f"Fetching data for {ticker}...")
         snap = await fetch_company_snapshot(ticker, session)  # Passing session to the API function
         if snap:
             price = snap.get("price_usd")
             market_cap = snap.get("market_cap_usd")
             sector = snap.get("sector", "")
-            logging.info(f"IPO {ticker} získané: Cena = {price}, Market Cap = {market_cap}, Sektor = {sector}")
+            logging.info(f"IPO {ticker} fetched: Price = {price}, Market Cap = {market_cap}, Sector = {sector}")
             if price is not None and market_cap is not None:
                 if price <= MAX_PRICE and market_cap >= MIN_MARKET_CAP:
                     if any(sector in sector_name for sector_name in SECTORS):
-                        logging.info(f"IPO {ticker} spĺňa kritériá.")
+                        logging.info(f"IPO {ticker} meets criteria.")
                         return snap
                     else:
-                        logging.warning(f"Ignorované IPO {ticker} – sektor mimo požiadaviek.")
+                        logging.warning(f"Ignored IPO {ticker} – sector not in required list.")
                 else:
-                    logging.warning(f"Ignorované IPO {ticker} – cena alebo market cap je mimo kritérií. Cena: {price}, Market Cap: {market_cap}")
+                    logging.warning(f"Ignored IPO {ticker} – price or market cap out of criteria. Price: {price}, Market Cap: {market_cap}")
             else:
-                logging.warning(f"Neúplné dáta pre {ticker}, ignorované.")
+                logging.warning(f"Incomplete data for {ticker}, ignored.")
         else:
-            logging.warning(f"Neboli získané dáta pre {ticker}")
+            logging.warning(f"No data retrieved for {ticker}")
     except Exception as e:
-        logging.error(f"Chyba pri spracovaní {ticker}: {e}")
+        logging.error(f"Error processing {ticker}: {e}")
     return None
 
 async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
@@ -86,47 +86,47 @@ async def fetch_and_filter_ipo_data(tickers: List[str]) -> List[Dict[str, Any]]:
             ipo = await fetch_ipo_data(ticker, session)
             if ipo:
                 ipo_data.append(ipo)
-    logging.info(f"Celkový počet filtrovaných IPO: {len(ipo_data)}")
+    logging.info(f"Total number of filtered IPOs: {len(ipo_data)}")
     return ipo_data
 
 async def send_alerts():
     tickers = ["GTLB", "ABNB", "PLTR", "SNOW", "DDOG", "U", "NET", "ASAN", "PATH"]
     
-    logging.info(f"Začínam monitorovať {len(tickers)} IPO spoločností...")
+    logging.info(f"Starting to monitor {len(tickers)} IPO companies...")
     
-    # Načítanie údajov o spoločnostiach a filtrovanie
+    # Fetching data for companies and filtering
     ipo_data = await fetch_and_filter_ipo_data(tickers)
     
-    logging.info(f"Po filtrovaní: {len(ipo_data)} IPO splnilo kritériá.")
+    logging.info(f"After filtering: {len(ipo_data)} IPOs met the criteria.")
     
-    # Poslanie alertov len pre filtrované IPO
+    # Sending alerts only for filtered IPOs
     for ipo in ipo_data:
         try:
-            logging.info(f"Spracovávam IPO: {ipo['ticker']} - Cena: {ipo['price_usd']}, Market Cap: {ipo['market_cap_usd']}")
+            logging.info(f"Processing IPO: {ipo['ticker']} - Price: {ipo['price_usd']}, Market Cap: {ipo['market_cap_usd']}")
             
-            # Prvý alert - Ak IPO ešte nebolo odoslané a splní podmienky
+            # First alert - If IPO hasn't been sent before and meets criteria
             if ipo['ticker'] not in alert_history:
                 ipo_msg = build_ipo_alert(ipo)
                 await send_telegram(ipo_msg)
                 alert_history[ipo['ticker']] = {"first_alert_sent": True, "price": ipo.get("price_usd")}
-                logging.info(f"Prvý alert pre {ipo['ticker']} úspešne odoslaný.")
+                logging.info(f"First alert for {ipo['ticker']} successfully sent.")
             
-            # Druhý alert - Ak cena akcie vstúpi do optimálneho nákupného pásma (Buy Band)
+            # Second alert - If stock price enters the optimal buy band
             if ipo['ticker'] in alert_history:
                 buy_band_min = ipo.get("buy_band_min")
                 buy_band_max = ipo.get("buy_band_max")
                 current_price = ipo.get("price_usd")
                 if buy_band_min <= current_price <= buy_band_max:
-                    ipo_msg = build_ipo_alert(ipo)  # Tento alert je rovnaký ako prvý, ale môžeš pridať špecifickú správu
+                    ipo_msg = build_ipo_alert(ipo)  # This alert is the same as the first, but can be modified with specific messages
                     await send_telegram(ipo_msg)
-                    logging.info(f"Druhý alert pre {ipo['ticker']} úspešne odoslaný.")
+                    logging.info(f"Second alert for {ipo['ticker']} successfully sent.")
         except Exception as e:
-            logging.error(f"Chyba pri vytváraní alertu pre {ipo['ticker']}: {e}")
+            logging.error(f"Error creating alert for {ipo['ticker']}: {e}")
     
-    logging.info("Proces dokončený.")
+    logging.info("Process completed.")
 
-# Spustenie skriptu
+# Run the script
 if __name__ == "__main__":
-    logging.info("Skript sa spustil.")
+    logging.info("Script started.")
     import asyncio
     asyncio.run(send_alerts())
